@@ -2,21 +2,23 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import type { ProcessMemory, ProcessLog } from '../../types'
 import { MemoryView } from './MemoryView'
 import { LogsView } from './LogsView'
+import { FilesView } from './FilesView'
 
-type TabId = 'memory' | 'logs'
+type TabId = 'memory' | 'logs' | 'files'
 
 interface RightPanelProps {
   memory: ProcessMemory | null
   log: ProcessLog | null
   memoryLoading?: boolean
   logLoading?: boolean
+  processPath: string
 }
 
 const MIN_WIDTH = 280
 const MAX_WIDTH = 800
 const DEFAULT_WIDTH = 384
 
-export function RightPanel({ memory, log, memoryLoading, logLoading }: RightPanelProps) {
+export function RightPanel({ memory, log, memoryLoading, logLoading, processPath }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('memory')
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -81,6 +83,16 @@ export function RightPanel({ memory, log, memoryLoading, logLoading }: RightPane
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
             d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+        </svg>
+      )
+    },
+    {
+      id: 'files',
+      label: 'Files',
+      icon: (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
         </svg>
       )
     }
@@ -161,6 +173,9 @@ export function RightPanel({ memory, log, memoryLoading, logLoading }: RightPane
           )}
           {activeTab === 'logs' && (
             <LogsView log={log} loading={logLoading} />
+          )}
+          {activeTab === 'files' && (
+            <FilesView processPath={processPath} />
           )}
         </div>
       )}

@@ -261,12 +261,13 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
           )}
         </div>
 
-        {/* Right Panel with Memory and Logs */}
+        {/* Right Panel with Memory, Logs, and Files */}
         <RightPanel
           memory={memory}
           log={log}
           memoryLoading={memoryLoading}
           logLoading={logLoading}
+          processPath={processPath}
         />
       </div>
 

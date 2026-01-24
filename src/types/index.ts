@@ -74,6 +74,23 @@ export interface ProcessInstance {
   files: ProcessFiles
 }
 
+// Process files types (for Files tab)
+export type ProcessFileType = 'markdown' | 'json'
+
+export interface ProcessFile {
+  name: string
+  path: string
+  type: ProcessFileType
+  size: number
+  modifiedAt: string
+}
+
+export interface FileContentUpdateEvent {
+  filePath: string
+  content: string | null
+  removed?: boolean
+}
+
 // UI-specific types
 export interface ProcessSummary {
   id: string

@@ -20,6 +20,20 @@ export interface LogUpdateEvent {
   log?: unknown
 }
 
+export interface FileContentUpdateEvent {
+  filePath: string
+  content: string | null
+  removed?: boolean
+}
+
+export interface ProcessFile {
+  name: string
+  path: string
+  type: 'markdown' | 'json'
+  size: number
+  modifiedAt: string
+}
+
 // Expose protected methods to renderer
 contextBridge.exposeInMainWorld('electronAPI', {
   // Project selection
@@ -34,6 +48,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File reading
   readProcessFile: (processPath: string, fileName: string) => 
     ipcRenderer.invoke('read-process-file', processPath, fileName),
+  
+  // Process files listing and reading
+  listProcessFiles: (processPath: string) =>
+    ipcRenderer.invoke('list-process-files', processPath),
+  readFileContent: (filePath: string) =>
+    ipcRenderer.invoke('read-file-content', filePath),
+  
+  // File content watching (hot reload)
+  watchFile: (filePath: string) =>
+    ipcRenderer.invoke('watch-file', filePath),
+  unwatchFile: (filePath: string) =>
+    ipcRenderer.invoke('unwatch-file', filePath),
   
   // Event listeners
   onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => {
@@ -58,6 +84,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => {
       ipcRenderer.removeListener('log-update', subscription)
     }
+  },
+  
+  onFileContentUpdate: (callback: (event: FileContentUpdateEvent) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: FileContentUpdateEvent) => callback(data)
+    ipcRenderer.on('file-content-update', subscription)
+    return () => {
+      ipcRenderer.removeListener('file-content-update', subscription)
+    }
   }
 })
 
@@ -71,9 +105,14 @@ declare global {
       startWatching: (projectPath: string) => Promise<boolean>
       stopWatching: () => Promise<boolean>
       readProcessFile: (processPath: string, fileName: string) => Promise<unknown | null>
+      listProcessFiles: (processPath: string) => Promise<ProcessFile[]>
+      readFileContent: (filePath: string) => Promise<string | null>
+      watchFile: (filePath: string) => Promise<boolean>
+      unwatchFile: (filePath: string) => Promise<boolean>
       onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => () => void
       onMemoryUpdate: (callback: (event: MemoryUpdateEvent) => void) => () => void
       onLogUpdate: (callback: (event: LogUpdateEvent) => void) => () => void
+      onFileContentUpdate: (callback: (event: FileContentUpdateEvent) => void) => () => void
     }
   }
 }
