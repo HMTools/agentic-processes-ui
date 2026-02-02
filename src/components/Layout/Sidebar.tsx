@@ -4,9 +4,10 @@ interface SidebarProps {
   onSelectProject: () => void
   processCount: number
   activeCount: number
-  currentView: 'dashboard' | 'settings'
+  currentView: 'dashboard' | 'settings' | 'templates'
   onNavigateToSettings: () => void
   onNavigateToDashboard: () => void
+  onNavigateToTemplates: () => void
 }
 
 export function Sidebar({ 
@@ -17,7 +18,8 @@ export function Sidebar({
   activeCount,
   currentView,
   onNavigateToSettings,
-  onNavigateToDashboard
+  onNavigateToDashboard,
+  onNavigateToTemplates
 }: SidebarProps) {
   return (
     <div className="w-16 bg-surface border-r border-border flex flex-col items-center py-4">
@@ -42,6 +44,17 @@ export function Sidebar({
           active={currentView === 'dashboard'}
           onClick={onNavigateToDashboard}
           badge={processCount > 0 ? processCount : undefined}
+        />
+        <NavButton 
+          icon={
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+            </svg>
+          }
+          label="Templates"
+          active={currentView === 'templates'}
+          onClick={onNavigateToTemplates}
         />
       </div>
 

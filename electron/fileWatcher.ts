@@ -11,9 +11,15 @@ export type WatcherCallback = (
   data: { path: string; processPath: string; content?: unknown }
 ) => void
 
+export type ErrorCallback = (error: string) => void
+
 let watcher: FSWatcher | null = null
 
-export function createFileWatcher(projectPath: string, callback: WatcherCallback) {
+export function createFileWatcher(
+  projectPath: string, 
+  callback: WatcherCallback,
+  onError?: ErrorCallback
+): { success: boolean; error?: string } {
   // Stop existing watcher if any
   stopFileWatcher()
 
@@ -21,6 +27,14 @@ export function createFileWatcher(projectPath: string, callback: WatcherCallback
   
   console.log('Starting file watcher for:', userProcessesPath)
   console.log('Path exists:', existsSync(userProcessesPath))
+
+  // Check if .user-processes folder exists
+  if (!existsSync(userProcessesPath)) {
+    const error = `The ".user-processes" folder was not found in "${projectPath}". Please ensure this folder exists with active/completed/failed subdirectories containing process.json files.`
+    console.error(error)
+    if (onError) onError(error)
+    return { success: false, error }
+  }
 
   // Watch the entire .user-processes directory
   watcher = watch(userProcessesPath, {
@@ -100,11 +114,16 @@ export function createFileWatcher(projectPath: string, callback: WatcherCallback
 
   watcher.on('error', (error) => {
     console.error('Watcher error:', error)
+    if (onError) {
+      onError(`File watcher error: ${error instanceof Error ? error.message : String(error)}`)
+    }
   })
 
   watcher.on('ready', () => {
     console.log('File watcher ready')
   })
+
+  return { success: true }
 }
 
 export function stopFileWatcher() {

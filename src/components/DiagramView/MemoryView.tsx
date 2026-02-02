@@ -1,4 +1,4 @@
-import type { ProcessMemory } from '../../types'
+import type { ProcessMemory, MemoryStepEntry } from '../../types'
 
 interface MemoryViewProps {
   memory: ProcessMemory | null
@@ -34,17 +34,22 @@ export function MemoryView({ memory, loading }: MemoryViewProps) {
     )
   }
 
-  const stepEntries = Object.entries(memory.steps).sort((a, b) => {
+  // Handle both old and new memory formats - steps might be undefined or null
+  const steps = (memory as any).steps || {}
+  const stepEntries = Object.entries(steps).sort((a, b) => {
     const numA = parseInt(a[0].replace(/\D/g, '')) || 0
     const numB = parseInt(b[0].replace(/\D/g, '')) || 0
     return numB - numA
   })
 
+  // Handle old format that had parameters at top level
+  const parameters = (memory as any).parameters || {}
+
   return (
     <div className="h-full overflow-auto p-4">
       <div className="space-y-6">
-        {/* Parameters Section */}
-        {Object.keys(memory.parameters).length > 0 && (
+        {/* Parameters Section (old format compatibility) */}
+        {Object.keys(parameters).length > 0 && (
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -55,7 +60,7 @@ export function MemoryView({ memory, loading }: MemoryViewProps) {
             </h3>
             <div className="bg-surface rounded-lg border border-border p-3">
               <div className="space-y-2">
-                {Object.entries(memory.parameters).map(([key, value]) => (
+                {Object.entries(parameters).map(([key, value]) => (
                   <div key={key} className="flex gap-2">
                     <span className="text-xs font-mono text-accent shrink-0">{key}:</span>
                     <span className="text-xs text-text-secondary break-all">{String(value)}</span>
@@ -126,16 +131,15 @@ export function MemoryView({ memory, loading }: MemoryViewProps) {
                     <span className="text-xs font-mono text-text-primary truncate">{child.name}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
                       child.status === 'completed' ? 'bg-status-completed/20 text-status-completed' :
-                      child.status === 'pending' ? 'bg-status-pending/20 text-status-pending' :
-                      'bg-status-active/20 text-status-active'
+                      child.status === 'paused' ? 'bg-status-paused/20 text-status-paused' :
+                      child.status === 'running' ? 'bg-status-active/20 text-status-active' :
+                      'bg-status-pending/20 text-status-pending'
                     }`}>
                       {child.status}
                     </span>
                   </div>
                   <div className="text-xs text-text-muted">
-                    <span className="text-text-secondary">{child.template}</span>
-                    <span className="mx-2">•</span>
-                    <span>Spawned at {child.spawnedAt}</span>
+                    <span className="text-text-secondary font-mono">{child.processPath}</span>
                   </div>
                 </div>
               ))}
@@ -165,7 +169,7 @@ export function MemoryView({ memory, loading }: MemoryViewProps) {
   )
 }
 
-function StepMemoryCard({ stepKey, step }: { stepKey: string; step: ProcessMemory['steps'][string] }) {
+function StepMemoryCard({ stepKey, step }: { stepKey: string; step: MemoryStepEntry }) {
   return (
     <div className="bg-surface rounded-lg border border-border overflow-hidden">
       <div className="px-3 py-2 bg-surface-elevated border-b border-border flex items-center justify-between">
@@ -173,13 +177,16 @@ function StepMemoryCard({ stepKey, step }: { stepKey: string; step: ProcessMemor
           <span className="text-xs font-mono text-accent">{stepKey}</span>
           <span className="text-xs text-text-primary font-medium">{step.name}</span>
         </div>
-        <span className={`text-xs px-2 py-0.5 rounded-full ${
-          step.status === 'completed' ? 'bg-status-completed/20 text-status-completed' :
-          step.status === 'in_progress' ? 'bg-status-active/20 text-status-active' :
-          'bg-status-pending/20 text-status-pending'
-        }`}>
-          {step.status.replace('_', ' ')}
-        </span>
+        {step.status && (
+          <span className={`text-xs px-2 py-0.5 rounded-full ${
+            step.status === 'completed' ? 'bg-status-completed/20 text-status-completed' :
+            step.status === 'in_progress' ? 'bg-status-active/20 text-status-active' :
+            step.status === 'awaiting_approval' ? 'bg-status-paused/20 text-status-paused' :
+            'bg-status-pending/20 text-status-pending'
+          }`}>
+            {step.status.replace('_', ' ')}
+          </span>
+        )}
       </div>
       
       <div className="p-3 space-y-3">
@@ -193,11 +200,7 @@ function StepMemoryCard({ stepKey, step }: { stepKey: string; step: ProcessMemor
               {step.decisionsMade.map((decision, i) => (
                 <li key={i} className="flex gap-2 text-xs">
                   <span className="text-accent shrink-0">→</span>
-                  <span className="text-text-secondary">
-                    {typeof decision === 'string' 
-                      ? decision 
-                      : decision.decision}
-                  </span>
+                  <span className="text-text-secondary">{decision}</span>
                 </li>
               ))}
             </ul>
@@ -219,25 +222,17 @@ function StepMemoryCard({ stepKey, step }: { stepKey: string; step: ProcessMemor
         )}
 
         {/* Notes */}
-        {step.notes && (typeof step.notes === 'string' ? step.notes : step.notes.length > 0) && (
+        {step.notes && (
           <div>
             <label className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">
               Notes
             </label>
-            <ul className="space-y-1">
-              {typeof step.notes === 'string' ? (
-                <li className="text-xs text-text-secondary">{step.notes}</li>
-              ) : (
-                step.notes.map((note, i) => (
-                  <li key={i} className="text-xs text-text-secondary">{note}</li>
-                ))
-              )}
-            </ul>
+            <p className="text-xs text-text-secondary">{step.notes}</p>
           </div>
         )}
 
         {/* Information Produced Preview */}
-        {step.informationProduced && Object.keys(step.informationProduced).length > 0 && (
+        {step.informationProduced && typeof step.informationProduced === 'object' && Object.keys(step.informationProduced).length > 0 && (
           <div>
             <label className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">
               Information Produced

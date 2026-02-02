@@ -227,9 +227,13 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
         {/* Current action */}
         <div className="mt-3 p-3 rounded-lg bg-surface border border-border">
           <div className="text-xs text-text-muted mb-1">Current Action</div>
-          <div className="text-sm text-text-primary">{process.currentState.currentAction}</div>
-          {process.currentState.details && (
-            <div className="text-xs text-text-secondary mt-1">{process.currentState.details}</div>
+          <div className="text-sm text-text-primary">
+            {(process.currentState as any).actionSummary || (process.currentState as any).currentAction || 'Unknown action'}
+          </div>
+          {((process.currentState as any).actionDetails || (process.currentState as any).details) && (
+            <div className="text-xs text-text-secondary mt-1">
+              {(process.currentState as any).actionDetails || (process.currentState as any).details}
+            </div>
           )}
         </div>
       </div>
@@ -316,13 +320,6 @@ function StepDetails({ step, onClose }: { step: ProcessStep; onClose: () => void
           <div>
             <label className="text-xs text-text-muted uppercase tracking-wider">Step Reference</label>
             <p className="text-xs font-mono text-text-secondary mt-1 break-all">{step.stepRef}</p>
-          </div>
-        )}
-
-        {step.output && (
-          <div>
-            <label className="text-xs text-text-muted uppercase tracking-wider">Expected Output</label>
-            <p className="text-sm text-text-secondary mt-1">{step.output}</p>
           </div>
         )}
 

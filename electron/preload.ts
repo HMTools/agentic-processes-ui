@@ -26,6 +26,15 @@ export interface FileContentUpdateEvent {
   removed?: boolean
 }
 
+export interface WatcherErrorEvent {
+  error: string
+}
+
+export interface StartWatchingResult {
+  success: boolean
+  error?: string
+}
+
 export interface ProcessFile {
   name: string
   path: string
@@ -42,7 +51,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setProjectPath: (path: string) => ipcRenderer.invoke('set-project-path', path),
   
   // File watching
-  startWatching: (projectPath: string) => ipcRenderer.invoke('start-watching', projectPath),
+  startWatching: (projectPath: string) => ipcRenderer.invoke('start-watching', projectPath) as Promise<StartWatchingResult>,
   stopWatching: () => ipcRenderer.invoke('stop-watching'),
   
   // File reading
@@ -60,6 +69,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('watch-file', filePath),
   unwatchFile: (filePath: string) =>
     ipcRenderer.invoke('unwatch-file', filePath),
+  
+  // Template loading
+  loadProcessTemplates: (projectPath: string) =>
+    ipcRenderer.invoke('load-process-templates', projectPath),
+  loadStepTemplates: (projectPath: string) =>
+    ipcRenderer.invoke('load-step-templates', projectPath),
   
   // Event listeners
   onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => {
@@ -92,6 +107,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => {
       ipcRenderer.removeListener('file-content-update', subscription)
     }
+  },
+  
+  onWatcherError: (callback: (event: WatcherErrorEvent) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: WatcherErrorEvent) => callback(data)
+    ipcRenderer.on('watcher-error', subscription)
+    return () => {
+      ipcRenderer.removeListener('watcher-error', subscription)
+    }
   }
 })
 
@@ -102,17 +125,20 @@ declare global {
       selectProjectFolder: () => Promise<string | null>
       getCurrentProject: () => Promise<string | null>
       setProjectPath: (path: string) => Promise<boolean>
-      startWatching: (projectPath: string) => Promise<boolean>
+      startWatching: (projectPath: string) => Promise<StartWatchingResult>
       stopWatching: () => Promise<boolean>
       readProcessFile: (processPath: string, fileName: string) => Promise<unknown | null>
       listProcessFiles: (processPath: string) => Promise<ProcessFile[]>
       readFileContent: (filePath: string) => Promise<string | null>
       watchFile: (filePath: string) => Promise<boolean>
       unwatchFile: (filePath: string) => Promise<boolean>
+      loadProcessTemplates: (projectPath: string) => Promise<unknown[]>
+      loadStepTemplates: (projectPath: string) => Promise<unknown[]>
       onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => () => void
       onMemoryUpdate: (callback: (event: MemoryUpdateEvent) => void) => () => void
       onLogUpdate: (callback: (event: LogUpdateEvent) => void) => () => void
       onFileContentUpdate: (callback: (event: FileContentUpdateEvent) => void) => () => void
+      onWatcherError: (callback: (event: WatcherErrorEvent) => void) => () => void
     }
   }
 }

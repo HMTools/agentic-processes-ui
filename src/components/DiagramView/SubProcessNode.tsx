@@ -1,15 +1,14 @@
 import { memo, useState, useCallback } from 'react'
 import { Handle, Position } from '@xyflow/react'
-import type { ProcessStatus, ProcessInstance } from '../../types'
+import type { ProcessStatus, ProcessInstance, StepId } from '../../types'
 import { useSettings } from '../../hooks/useSettings'
 import { LazyPromptModal } from '../LazyPromptModal'
 
 interface SubProcessNodeData {
   id: string
   name: string
-  template: string
   status: ProcessStatus
-  spawnedAtStep: number
+  spawnedAtStep: StepId
   onNavigate?: () => void
   isHighlighted?: boolean
   // For lazy prompts
@@ -23,7 +22,9 @@ interface SubProcessNodeProps {
 }
 
 export const SubProcessNode = memo(function SubProcessNode({ data, selected }: SubProcessNodeProps) {
-  const { name, template, status, onNavigate, isHighlighted, subProcess, subProcessPath } = data
+  const { name, status, onNavigate, isHighlighted, subProcess, subProcessPath } = data
+  // Get template from the subProcess if available
+  const template = subProcess?.metadata.template
   const { settings } = useSettings()
   const [isModalOpen, setIsModalOpen] = useState(false)
 
@@ -129,13 +130,15 @@ export const SubProcessNode = memo(function SubProcessNode({ data, selected }: S
             
             {/* Name */}
             <h4 className="text-xs font-medium text-text-primary leading-tight truncate">
-              {name || template}
+              {name || template || 'Sub-Process'}
             </h4>
             
             {/* Template */}
-            <p className="text-[10px] text-text-muted mt-1 font-mono truncate">
-              {template}
-            </p>
+            {template && (
+              <p className="text-[10px] text-text-muted mt-1 font-mono truncate">
+                {template}
+              </p>
+            )}
           </div>
         </div>
 

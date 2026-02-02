@@ -26,6 +26,9 @@ export const StepNode = memo(function StepNode({ data, selected }: StepNodeProps
     if (step.status === 'in_progress' || isActive) {
       return 'border-status-active bg-status-active/10 shadow-[0_0_20px_rgba(34,211,238,0.4)] animate-pulse-slow'
     }
+    if (step.status === 'awaiting_approval') {
+      return 'border-status-paused bg-status-paused/10 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+    }
     if (step.status === 'skipped') {
       return 'border-status-pending bg-surface opacity-50'
     }
@@ -43,6 +46,13 @@ export const StepNode = memo(function StepNode({ data, selected }: StepNodeProps
     if (step.status === 'in_progress' || isActive) {
       return (
         <div className="w-4 h-4 rounded-full border-2 border-status-active border-t-transparent animate-spin" />
+      )
+    }
+    if (step.status === 'awaiting_approval') {
+      return (
+        <svg className="w-4 h-4 text-status-paused" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
       )
     }
     if (processStatus === 'failed' && isActive) {
@@ -95,11 +105,6 @@ export const StepNode = memo(function StepNode({ data, selected }: StepNodeProps
           {step.stepRef && (
             <p className="text-[10px] text-text-muted mt-1 font-mono truncate">
               {step.stepRef.replace('@framework-step:', '').replace('@user-step:', '')}
-            </p>
-          )}
-          {step.output && (
-            <p className="text-xs text-text-secondary mt-2 line-clamp-2">
-              {step.output}
             </p>
           )}
         </div>

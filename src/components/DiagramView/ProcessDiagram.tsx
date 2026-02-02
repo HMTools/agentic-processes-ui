@@ -92,19 +92,34 @@ function generateDiagram(
     })
   }
 
-  // Group sub-processes by the step that spawned them
-  const subProcessesByStep: Record<number, ChildProcessRef[]> = {}
+  // Group sub-processes by the step that spawned them (using StepId or step number)
+  const subProcessesByStepId: Record<string, ChildProcessRef[]> = {}
+  const subProcessesByStepNumber: Record<number, ChildProcessRef[]> = {}
+  
   if (process.subProcessState?.childProcesses) {
     for (const child of process.subProcessState.childProcesses) {
-      if (!subProcessesByStep[child.spawnedAtStep]) {
-        subProcessesByStep[child.spawnedAtStep] = []
+      const spawnedAt = child.spawnedAtStep as any
+      // Handle both string (StepId) and number formats
+      if (typeof spawnedAt === 'string') {
+        if (!subProcessesByStepId[spawnedAt]) {
+          subProcessesByStepId[spawnedAt] = []
+        }
+        subProcessesByStepId[spawnedAt].push(child)
+      } else if (typeof spawnedAt === 'number') {
+        if (!subProcessesByStepNumber[spawnedAt]) {
+          subProcessesByStepNumber[spawnedAt] = []
+        }
+        subProcessesByStepNumber[spawnedAt].push(child)
       }
-      subProcessesByStep[child.spawnedAtStep].push(child)
     }
   }
 
   process.steps.forEach((step, index) => {
-    const isActive = step.number === process.currentState.activeStepNumber
+    // Handle both new format (activeStepId) and old format (activeStepNumber)
+    const currentState = process.currentState as any
+    const isActive = currentState.activeStepId 
+      ? step.id === currentState.activeStepId
+      : step.number === currentState.activeStepNumber
     const stepY = startY + index * (nodeHeight + verticalGap)
     
     nodes.push({
@@ -125,7 +140,10 @@ function generateDiagram(
     if (index < process.steps.length - 1) {
       const isCompleted = step.status === 'completed'
       const nextStep = process.steps[index + 1]
-      const isNextActive = nextStep.number === process.currentState.activeStepNumber
+      // Handle both new format (activeStepId) and old format (activeStepNumber)
+      const isNextActive = currentState.activeStepId 
+        ? nextStep.id === currentState.activeStepId
+        : nextStep.number === currentState.activeStepNumber
       
       edges.push({
         id: `edge-${step.number}-${nextStep.number}`,
@@ -139,8 +157,10 @@ function generateDiagram(
       })
     }
 
-    // Add sub-process nodes for this step
-    const stepSubProcesses = subProcessesByStep[step.number]
+    // Add sub-process nodes for this step (try both step.id and step.number)
+    const stepSubProcesses = step.id 
+      ? subProcessesByStepId[step.id] 
+      : subProcessesByStepNumber[step.number]
     if (stepSubProcesses) {
       stepSubProcesses.forEach((subProcess, subIndex) => {
         const subProcessNodeId = `subprocess-${subProcess.id}`
@@ -159,7 +179,6 @@ function generateDiagram(
           data: {
             id: subProcess.id,
             name: subProcess.name,
-            template: subProcess.template,
             status: subProcess.status,
             spawnedAtStep: subProcess.spawnedAtStep,
             onNavigate: onSubProcessNavigate ? () => onSubProcessNavigate(subProcess) : undefined,

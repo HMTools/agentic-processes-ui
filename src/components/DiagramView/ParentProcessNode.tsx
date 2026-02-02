@@ -1,11 +1,12 @@
 import { memo } from 'react'
 import { Handle, Position } from '@xyflow/react'
+import type { StepId } from '../../types'
 
 interface ParentProcessNodeData {
   id: string
   name: string
   processPath: string
-  returnToStep: number
+  returnToStep: StepId
   onNavigate?: () => void
   isHighlighted?: boolean
 }
@@ -16,7 +17,7 @@ interface ParentProcessNodeProps {
 }
 
 export const ParentProcessNode = memo(function ParentProcessNode({ data, selected }: ParentProcessNodeProps) {
-  const { name, returnToStep, onNavigate, isHighlighted } = data
+  const { name, onNavigate, isHighlighted } = data
 
   const handleNavigateClick = (e: React.MouseEvent) => {
     e.stopPropagation() // Prevent node selection
@@ -59,9 +60,9 @@ export const ParentProcessNode = memo(function ParentProcessNode({ data, selecte
             {name}
           </h4>
           
-          {/* Return step info */}
+          {/* Return info */}
           <p className="text-[10px] text-text-muted mt-1 font-mono">
-            Returns to Step {returnToStep}
+            Will return on completion
           </p>
         </div>
       </div>

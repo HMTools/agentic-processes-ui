@@ -1,4 +1,4 @@
-import type { ProcessInstance, ProcessSummary, ProcessStatus } from '../types'
+import type { ProcessInstance, ProcessSummary, ProcessStatus, StepStatus, StepId, ProcessStep } from '../types'
 
 // Parse the folder status from the path
 function getFolderStatus(path: string): 'active' | 'completed' | 'failed' {
@@ -8,19 +8,53 @@ function getFolderStatus(path: string): 'active' | 'completed' | 'failed' {
   return 'active' // default
 }
 
+// Helper function to find step number from step ID
+export function findStepNumber(process: ProcessInstance, stepId: StepId): number {
+  const step = process.steps.find(s => s.id === stepId)
+  return step?.number ?? 0
+}
+
+// Helper function to check if a step is active
+export function isActiveStep(step: ProcessStep, process: ProcessInstance): boolean {
+  return step.id === process.currentState.activeStepId
+}
+
+// Helper function to find step by ID
+export function findStepById(process: ProcessInstance, stepId: StepId): ProcessStep | undefined {
+  return process.steps.find(s => s.id === stepId)
+}
+
 // Convert a ProcessInstance to a ProcessSummary for the dashboard
 export function toProcessSummary(process: ProcessInstance, path: string): ProcessSummary {
   const completedSteps = process.steps.filter(s => s.status === 'completed').length
   const totalSteps = process.steps.length
+  
+  // Handle both new format (activeStepId) and old format (activeStepNumber)
+  const currentState = process.currentState as any // Allow access to both old and new fields
+  let currentStepNumber: number
+  
+  if (currentState.activeStepId) {
+    // New format: find step number from activeStepId
+    currentStepNumber = findStepNumber(process, currentState.activeStepId)
+  } else if (typeof currentState.activeStepNumber === 'number') {
+    // Old format: use activeStepNumber directly
+    currentStepNumber = currentState.activeStepNumber
+  } else {
+    // Fallback: use completed steps count
+    currentStepNumber = completedSteps
+  }
+  
+  // Handle both new format (actionSummary) and old format (currentAction)
+  const currentAction = currentState.actionSummary || currentState.currentAction || 'Unknown action'
   
   return {
     id: process.id,
     name: process.name,
     status: process.status,
     template: process.metadata.template,
-    currentStep: process.currentState.activeStepNumber,
+    currentStep: currentStepNumber,
     totalSteps,
-    currentAction: process.currentState.currentAction,
+    currentAction,
     lastUpdated: process.metadata.lastUpdated,
     folderStatus: getFolderStatus(path),
     path
@@ -45,6 +79,7 @@ export function getStatusColor(status: ProcessStatus | StepStatus): string {
     case 'failed':
       return 'text-status-failed'
     case 'paused':
+    case 'awaiting_approval':
       return 'text-status-paused'
     case 'pending':
     case 'skipped':
@@ -64,6 +99,7 @@ export function getStatusBgColor(status: ProcessStatus | StepStatus): string {
     case 'failed':
       return 'bg-status-failed/20 border-status-failed'
     case 'paused':
+    case 'awaiting_approval':
       return 'bg-status-paused/20 border-status-paused'
     case 'pending':
     case 'skipped':
@@ -98,6 +134,3 @@ export function formatRelativeTime(isoString: string): string {
   if (diffDays < 7) return `${diffDays}d ago`
   return formatTimestamp(isoString)
 }
-
-type StepStatus = 'pending' | 'in_progress' | 'completed' | 'skipped'
-

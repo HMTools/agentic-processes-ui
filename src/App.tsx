@@ -4,12 +4,14 @@ import { useSettingsState, SettingsContext } from './hooks/useSettings'
 import { Dashboard } from './components/Dashboard'
 import { DiagramView } from './components/DiagramView'
 import { Settings } from './components/Settings'
+import { Templates } from './components/Templates'
 import { Sidebar } from './components/Layout/Sidebar'
 import { WelcomeScreen } from './components/Layout/WelcomeScreen'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { ErrorDisplay } from './components/ErrorDisplay'
 
-type AppView = 'dashboard' | 'settings'
+type AppView = 'dashboard' | 'settings' | 'templates'
 
 function App() {
   const {
@@ -20,7 +22,10 @@ function App() {
     completedProcesses,
     failedProcesses,
     selectProject,
-    getProcess
+    getProcess,
+    error,
+    processErrors,
+    retryWatching
   } = useProcesses()
 
   const settingsState = useSettingsState()
@@ -53,6 +58,12 @@ function App() {
     setCurrentView('dashboard')
   }, [])
 
+  const handleNavigateToTemplates = useCallback(() => {
+    setCurrentView('templates')
+    setSelectedProcessPath(null)
+    setNavigatedFromPath(null)
+  }, [])
+
   return (
     <ToastProvider>
       <SettingsContext.Provider value={settingsState}>
@@ -67,6 +78,7 @@ function App() {
           currentView={currentView}
           onNavigateToSettings={handleNavigateToSettings}
           onNavigateToDashboard={handleNavigateToDashboard}
+          onNavigateToTemplates={handleNavigateToTemplates}
         />
 
         {/* Main content */}
@@ -74,8 +86,17 @@ function App() {
           <ErrorBoundary>
             {currentView === 'settings' ? (
               <Settings onBack={handleNavigateToDashboard} />
+            ) : currentView === 'templates' ? (
+              <Templates projectPath={projectPath} onBack={handleNavigateToDashboard} />
             ) : !projectPath ? (
               <WelcomeScreen onSelectProject={selectProject} />
+            ) : error ? (
+              <ErrorDisplay
+                error={error}
+                projectPath={projectPath}
+                onRetry={retryWatching}
+                onSelectDifferent={selectProject}
+              />
             ) : selectedProcess ? (
               <DiagramView
                 process={selectedProcess}
@@ -94,6 +115,7 @@ function App() {
                 selectedProcess={selectedProcessPath}
                 onSelectProcess={setSelectedProcessPath}
                 getProcess={getProcess}
+                processErrors={processErrors}
               />
             )}
           </ErrorBoundary>

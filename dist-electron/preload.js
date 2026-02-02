@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // File content watching (hot reload)
   watchFile: (filePath) => ipcRenderer.invoke("watch-file", filePath),
   unwatchFile: (filePath) => ipcRenderer.invoke("unwatch-file", filePath),
+  // Template loading
+  loadProcessTemplates: (projectPath) => ipcRenderer.invoke("load-process-templates", projectPath),
+  loadStepTemplates: (projectPath) => ipcRenderer.invoke("load-step-templates", projectPath),
   // Event listeners
   onProcessUpdate: (callback) => {
     const subscription = (_event, data) => callback(data);
@@ -42,6 +45,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("file-content-update", subscription);
     return () => {
       ipcRenderer.removeListener("file-content-update", subscription);
+    };
+  },
+  onWatcherError: (callback) => {
+    const subscription = (_event, data) => callback(data);
+    ipcRenderer.on("watcher-error", subscription);
+    return () => {
+      ipcRenderer.removeListener("watcher-error", subscription);
     };
   }
 });

@@ -1,8 +1,31 @@
-import type { ProcessLog, UserInteraction } from '../../types'
+import type { ProcessLog, UserInteraction, LogStepEntry, StepTimestamp } from '../../types'
 
 interface LogsViewProps {
   log: ProcessLog | null
   loading?: boolean
+}
+
+// Helper to safely convert any value to displayable text
+// Handles objects that may be passed where strings are expected
+function toDisplayText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') {
+    // Handle objects with common text fields
+    const obj = value as Record<string, unknown>
+    if ('description' in obj && typeof obj.description === 'string') return obj.description
+    if ('message' in obj && typeof obj.message === 'string') return obj.message
+    if ('text' in obj && typeof obj.text === 'string') return obj.text
+    if ('name' in obj && typeof obj.name === 'string') return obj.name
+    // Fallback to JSON stringification
+    return JSON.stringify(value)
+  }
+  return String(value)
+}
+
+// Helper to check if timestamp is StepTimestamp object
+function isStepTimestamp(ts: string | StepTimestamp): ts is StepTimestamp {
+  return typeof ts === 'object' && ts !== null && 'startedAt' in ts
 }
 
 export function LogsView({ log, loading }: LogsViewProps) {
@@ -81,7 +104,7 @@ export function LogsView({ log, loading }: LogsViewProps) {
         )}
 
         {/* Efficiency Metrics */}
-        {efficiencyMetrics && (
+        {efficiencyMetrics && Object.keys(efficiencyMetrics).length > 0 && (
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -90,27 +113,17 @@ export function LogsView({ log, loading }: LogsViewProps) {
               </svg>
               Metrics
             </h3>
-            <div className="grid grid-cols-4 gap-3">
-              <MetricCard 
-                label="Steps Completed" 
-                value={efficiencyMetrics.stepsCompleted ?? 0} 
-                color="text-status-completed"
-              />
-              <MetricCard 
-                label="User Corrections" 
-                value={efficiencyMetrics.totalUserCorrections ?? 0} 
-                color="text-status-paused"
-              />
-              <MetricCard 
-                label="Files Modified" 
-                value={efficiencyMetrics.filesModified ?? 0} 
-                color="text-accent"
-              />
-              <MetricCard 
-                label="Multi-iteration Steps" 
-                value={efficiencyMetrics.stepsRequiringMultipleIterations ?? 0} 
-                color="text-text-secondary"
-              />
+            <div className="bg-surface rounded-lg border border-border p-3">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                {Object.entries(efficiencyMetrics).map(([key, value]) => (
+                  <div key={key}>
+                    <span className="text-text-muted capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}:</span>
+                    <span className="ml-2 text-text-secondary font-mono">
+                      {typeof value === 'number' ? value : String(value)}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
         )}
@@ -148,7 +161,7 @@ export function LogsView({ log, loading }: LogsViewProps) {
                 {processWideObservations.recommendationsForFuture.map((rec, i) => (
                   <li key={i} className="flex gap-2 text-xs">
                     <span className="text-accent shrink-0">*</span>
-                    <span className="text-text-secondary">{rec}</span>
+                    <span className="text-text-secondary">{toDisplayText(rec)}</span>
                   </li>
                 ))}
               </ul>
@@ -160,43 +173,35 @@ export function LogsView({ log, loading }: LogsViewProps) {
   )
 }
 
-function MetricCard({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="bg-surface rounded-lg border border-border p-3 text-center">
-      <div className={`text-2xl font-mono font-semibold ${color}`}>{value}</div>
-      <div className="text-xs text-text-muted mt-1">{label}</div>
-    </div>
-  )
-}
-
-function StepLogCard({ stepKey, step }: { stepKey: string; step: ProcessLog['steps'][string] }) {
+function StepLogCard({ stepKey, step }: { stepKey: string; step: LogStepEntry }) {
   if (!step) return null
 
-  const hasContent = (step.actionsTaken && step.actionsTaken.length > 0) || 
-                     (step.userInteractions && step.userInteractions.length > 0) || 
-                     (step.agentReasoning && step.agentReasoning.length > 0)
+  const hasContent = (Array.isArray(step.actionsTaken) && step.actionsTaken.length > 0) || 
+                     (Array.isArray(step.userInteractions) && step.userInteractions.length > 0) || 
+                     (Array.isArray(step.agentReasoning) && step.agentReasoning.length > 0)
 
   if (!hasContent) {
     return null
   }
 
-  const timestamp = step.timestamp || { started: null, completed: null }
+  // Handle both simple timestamp string and StepTimestamp object
+  const startedAt = isStepTimestamp(step.timestamp) ? step.timestamp.startedAt : step.timestamp
+  const completedAt = isStepTimestamp(step.timestamp) ? step.timestamp.completedAt : null
 
   return (
     <div className="bg-surface rounded-lg border border-border overflow-hidden">
       <div className="px-3 py-2 bg-surface-elevated border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono text-accent">{stepKey}</span>
-          <span className="text-xs text-text-primary font-medium">{step.name || 'Unknown Step'}</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-text-muted">
-          {timestamp.started && (
-            <span>{formatDate(timestamp.started)}</span>
+          {startedAt && (
+            <span>{formatDate(startedAt)}</span>
           )}
-          {timestamp.completed && (
+          {completedAt && (
             <>
               <span>-&gt;</span>
-              <span className="text-status-completed">{formatDate(timestamp.completed)}</span>
+              <span className="text-status-completed">{formatDate(completedAt)}</span>
             </>
           )}
         </div>
@@ -204,7 +209,7 @@ function StepLogCard({ stepKey, step }: { stepKey: string; step: ProcessLog['ste
       
       <div className="p-3 space-y-4">
         {/* Actions Taken */}
-        {step.actionsTaken && step.actionsTaken.length > 0 && (
+        {Array.isArray(step.actionsTaken) && step.actionsTaken.length > 0 && (
           <div>
             <label className="text-xs text-text-muted uppercase tracking-wider block mb-2 flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -216,7 +221,7 @@ function StepLogCard({ stepKey, step }: { stepKey: string; step: ProcessLog['ste
               {step.actionsTaken.map((action, i) => (
                 <li key={i} className="flex gap-2 text-xs">
                   <span className="text-status-completed shrink-0">+</span>
-                  <span className="text-text-secondary">{action}</span>
+                  <span className="text-text-secondary">{toDisplayText(action)}</span>
                 </li>
               ))}
             </ul>
@@ -224,7 +229,7 @@ function StepLogCard({ stepKey, step }: { stepKey: string; step: ProcessLog['ste
         )}
 
         {/* Agent Reasoning */}
-        {step.agentReasoning && step.agentReasoning.length > 0 && (
+        {Array.isArray(step.agentReasoning) && step.agentReasoning.length > 0 && (
           <div>
             <label className="text-xs text-text-muted uppercase tracking-wider block mb-2 flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -237,7 +242,7 @@ function StepLogCard({ stepKey, step }: { stepKey: string; step: ProcessLog['ste
               {step.agentReasoning.map((reasoning, i) => (
                 <li key={i} className="flex gap-2 text-xs">
                   <span className="text-accent shrink-0">-&gt;</span>
-                  <span className="text-text-muted italic">{reasoning}</span>
+                  <span className="text-text-muted italic">{toDisplayText(reasoning)}</span>
                 </li>
               ))}
             </ul>
@@ -245,7 +250,7 @@ function StepLogCard({ stepKey, step }: { stepKey: string; step: ProcessLog['ste
         )}
 
         {/* User Interactions */}
-        {step.userInteractions && step.userInteractions.length > 0 && (
+        {Array.isArray(step.userInteractions) && step.userInteractions.length > 0 && (
           <div>
             <label className="text-xs text-text-muted uppercase tracking-wider block mb-2 flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -265,7 +270,7 @@ function StepLogCard({ stepKey, step }: { stepKey: string; step: ProcessLog['ste
         )}
 
         {/* Decisions Made */}
-        {step.decisionsMade && step.decisionsMade.length > 0 && (
+        {Array.isArray(step.decisionsMade) && step.decisionsMade.length > 0 && (
           <div>
             <label className="text-xs text-text-muted uppercase tracking-wider block mb-2 flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -276,14 +281,14 @@ function StepLogCard({ stepKey, step }: { stepKey: string; step: ProcessLog['ste
             </label>
             <ul className="space-y-1">
               {step.decisionsMade.map((decision, i) => (
-                <li key={i} className="text-xs text-text-secondary">- {decision}</li>
+                <li key={i} className="text-xs text-text-secondary">- {toDisplayText(decision)}</li>
               ))}
             </ul>
           </div>
         )}
 
         {/* Problems Encountered */}
-        {step.problemsEncountered && step.problemsEncountered.length > 0 && (
+        {Array.isArray(step.problemsEncountered) && step.problemsEncountered.length > 0 && (
           <div>
             <label className="text-xs text-text-muted uppercase tracking-wider block mb-2 flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 text-status-failed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -294,7 +299,7 @@ function StepLogCard({ stepKey, step }: { stepKey: string; step: ProcessLog['ste
             </label>
             <ul className="space-y-1 bg-status-failed/10 border border-status-failed/30 rounded p-2">
               {step.problemsEncountered.map((problem, i) => (
-                <li key={i} className="text-xs text-status-failed">! {problem}</li>
+                <li key={i} className="text-xs text-status-failed">! {toDisplayText(problem)}</li>
               ))}
             </ul>
           </div>
@@ -322,8 +327,13 @@ function UserInteractionCard({ interaction }: { interaction: UserInteraction }) 
       </div>
       <div className="flex items-start gap-2">
         <span className="text-accent text-xs shrink-0">Agent:</span>
-        <span className="text-xs text-text-secondary">{interaction.response || 'N/A'}</span>
+        <span className="text-xs text-text-secondary">{interaction.agentResponse || 'N/A'}</span>
       </div>
+      {interaction.forImprovementStep && (
+        <div className="text-xs text-status-paused italic">
+          Flagged for improvement step
+        </div>
+      )}
       {interaction.timestamp && (
         <div className="text-xs text-text-muted text-right">
           {formatDate(interaction.timestamp)}

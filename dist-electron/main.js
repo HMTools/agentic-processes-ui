@@ -5,11 +5,17 @@ import { readFile, readdir, stat } from "fs/promises";
 import { existsSync } from "fs";
 import { watch } from "chokidar";
 let watcher = null;
-function createFileWatcher(projectPath, callback) {
+function createFileWatcher(projectPath, callback, onError) {
   stopFileWatcher();
   const userProcessesPath = join(projectPath, ".user-processes");
   console.log("Starting file watcher for:", userProcessesPath);
   console.log("Path exists:", existsSync(userProcessesPath));
+  if (!existsSync(userProcessesPath)) {
+    const error = `The ".user-processes" folder was not found in "${projectPath}". Please ensure this folder exists with active/completed/failed subdirectories containing process.json files.`;
+    console.error(error);
+    if (onError) onError(error);
+    return { success: false, error };
+  }
   watcher = watch(userProcessesPath, {
     persistent: true,
     ignoreInitial: false,
@@ -74,10 +80,14 @@ function createFileWatcher(projectPath, callback) {
   });
   watcher.on("error", (error) => {
     console.error("Watcher error:", error);
+    if (onError) {
+      onError(`File watcher error: ${error instanceof Error ? error.message : String(error)}`);
+    }
   });
   watcher.on("ready", () => {
     console.log("File watcher ready");
   });
+  return { success: true };
 }
 function stopFileWatcher() {
   if (watcher) {
@@ -135,32 +145,41 @@ ipcMain.handle("set-project-path", (_event, path) => {
 });
 ipcMain.handle("start-watching", (_event, projectPath) => {
   if (mainWindow) {
-    createFileWatcher(projectPath, (event, fileType, data) => {
-      switch (fileType) {
-        case "process":
-          mainWindow?.webContents.send("process-update", {
-            event,
-            data: { path: data.processPath, process: data.content }
-          });
-          break;
-        case "memory":
-          mainWindow?.webContents.send("memory-update", {
-            event,
-            processPath: data.processPath,
-            memory: data.content
-          });
-          break;
-        case "log":
-          mainWindow?.webContents.send("log-update", {
-            event,
-            processPath: data.processPath,
-            log: data.content
-          });
-          break;
+    const result = createFileWatcher(
+      projectPath,
+      (event, fileType, data) => {
+        switch (fileType) {
+          case "process":
+            mainWindow?.webContents.send("process-update", {
+              event,
+              data: { path: data.processPath, process: data.content }
+            });
+            break;
+          case "memory":
+            mainWindow?.webContents.send("memory-update", {
+              event,
+              processPath: data.processPath,
+              memory: data.content
+            });
+            break;
+          case "log":
+            mainWindow?.webContents.send("log-update", {
+              event,
+              processPath: data.processPath,
+              log: data.content
+            });
+            break;
+        }
+      },
+      (error) => {
+        mainWindow?.webContents.send("watcher-error", { error });
       }
-    });
+    );
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
   }
-  return true;
+  return { success: true };
 });
 ipcMain.handle("stop-watching", () => {
   stopFileWatcher();
@@ -279,6 +298,118 @@ ipcMain.handle("unwatch-file", (_event, filePath) => {
     console.log(`Stopped watching file: ${filePath}`);
   }
   return true;
+});
+ipcMain.handle("load-process-templates", async (_event, projectPath) => {
+  try {
+    const templatesPath = join(projectPath, ".processes", "templates");
+    if (!existsSync(templatesPath)) {
+      console.log(`Templates directory not found: ${templatesPath}`);
+      return [];
+    }
+    const templates = [];
+    const categories = await readdir(templatesPath);
+    for (const category of categories) {
+      const categoryPath = join(templatesPath, category);
+      const categoryStat = await stat(categoryPath);
+      if (!categoryStat.isDirectory() || category.startsWith(".") || category.startsWith("_")) {
+        continue;
+      }
+      const directTemplateJson = join(categoryPath, `${category}.json`);
+      if (existsSync(directTemplateJson)) {
+        try {
+          const content = await readFile(directTemplateJson, "utf-8");
+          const template = JSON.parse(content);
+          if (template.type === "template") {
+            template.filePath = directTemplateJson;
+            template.markdownPath = join(categoryPath, `${category}.md`);
+            if (existsSync(template.markdownPath)) {
+              template.markdownContent = await readFile(template.markdownPath, "utf-8");
+            }
+            templates.push(template);
+          }
+        } catch (err) {
+          console.error(`Error reading template: ${directTemplateJson}`, err);
+        }
+        continue;
+      }
+      const templateFolders = await readdir(categoryPath);
+      for (const templateName of templateFolders) {
+        const templatePath = join(categoryPath, templateName);
+        const templateStat = await stat(templatePath);
+        if (!templateStat.isDirectory() || templateName.startsWith(".") || templateName.startsWith("_")) {
+          continue;
+        }
+        const jsonPath = join(templatePath, `${templateName}.json`);
+        if (existsSync(jsonPath)) {
+          try {
+            const content = await readFile(jsonPath, "utf-8");
+            const template = JSON.parse(content);
+            if (template.type === "template") {
+              template.filePath = jsonPath;
+              template.markdownPath = join(templatePath, `${templateName}.md`);
+              if (existsSync(template.markdownPath)) {
+                template.markdownContent = await readFile(template.markdownPath, "utf-8");
+              }
+              templates.push(template);
+            }
+          } catch (err) {
+            console.error(`Error reading template: ${jsonPath}`, err);
+          }
+        }
+      }
+    }
+    return templates;
+  } catch (error) {
+    console.error("Error loading process templates:", error);
+    return [];
+  }
+});
+ipcMain.handle("load-step-templates", async (_event, projectPath) => {
+  try {
+    const stepsPath = join(projectPath, ".processes", "steps");
+    if (!existsSync(stepsPath)) {
+      console.log(`Steps directory not found: ${stepsPath}`);
+      return [];
+    }
+    const steps = [];
+    const categories = await readdir(stepsPath);
+    for (const category of categories) {
+      const categoryPath = join(stepsPath, category);
+      const categoryStat = await stat(categoryPath);
+      if (!categoryStat.isDirectory() || category.startsWith(".") || category.startsWith("_")) {
+        continue;
+      }
+      const stepFolders = await readdir(categoryPath);
+      for (const stepName of stepFolders) {
+        const stepPath = join(categoryPath, stepName);
+        const stepStat = await stat(stepPath);
+        if (!stepStat.isDirectory() || stepName.startsWith(".") || stepName.startsWith("_")) {
+          continue;
+        }
+        const jsonPath = join(stepPath, `${stepName}.json`);
+        if (existsSync(jsonPath)) {
+          try {
+            const content = await readFile(jsonPath, "utf-8");
+            const step = JSON.parse(content);
+            if (step.type === "step") {
+              step.filePath = jsonPath;
+              step.markdownPath = join(stepPath, `${stepName}.md`);
+              if (existsSync(step.markdownPath)) {
+                step.markdownContent = await readFile(step.markdownPath, "utf-8");
+              }
+              steps.push(step);
+            }
+          } catch (err) {
+            console.error(`Error reading step: ${jsonPath}`, err);
+          }
+        }
+      }
+    }
+    return steps;
+  } catch (error) {
+    console.error("Error loading step templates:", error);
+    return [];
+  }
 });
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
