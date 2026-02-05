@@ -50,6 +50,21 @@ export interface ProcessCurrentState {
   actionDetails?: string
 }
 
+/**
+ * An option presented to the user for selection during step interaction.
+ * Used when a step needs user input beyond simple approval.
+ */
+export interface InteractionOption {
+  /** Unique identifier for this option */
+  id: string
+  /** Display label for this option in the UI */
+  label: string
+  /** Optional longer description shown as tooltip or help text */
+  description?: string
+  /** Whether this option should be pre-selected/highlighted as default */
+  isDefault?: boolean
+}
+
 export interface ProcessStep {
   id: StepId
   number: number
@@ -60,6 +75,10 @@ export interface ProcessStep {
   completedAt?: ISOTimestamp
   approvalRequired?: boolean
   approved?: boolean
+  /** Structured options for user selection when step needs input */
+  interactionOptions?: InteractionOption[]
+  /** IDs of options selected by the user (populated after selection) */
+  selectedOptions?: string[]
 }
 
 export interface ChildProcessRef {
@@ -155,7 +174,7 @@ export interface DiagramEdge {
 // Lazy Prompts types
 // ============================================================================
 
-export type LazyPromptType = 'continue-process'
+export type LazyPromptType = 'continue-process' | 'select-option'
 
 export interface LazyPromptAction {
   type: 'clipboard' | 'agent-apply'

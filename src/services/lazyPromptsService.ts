@@ -1,7 +1,15 @@
-import type { ProcessInstance, LazyPromptType, LazyPromptConfig } from '../types'
+import type { ProcessInstance, LazyPromptType, LazyPromptConfig, InteractionOption } from '../types'
 
 // Available lazy prompt configurations
 export const LAZY_PROMPT_CONFIGS: Record<LazyPromptType, LazyPromptConfig> = {
+  'select-option': {
+    type: 'select-option',
+    label: 'Select Option',
+    description: 'Choose from available options for the current step',
+    availableActions: [
+      { type: 'clipboard', label: 'Copy to Clipboard' }
+    ]
+  },
   'continue-process': {
     type: 'continue-process',
     label: 'Continue Process',
@@ -11,6 +19,28 @@ export const LAZY_PROMPT_CONFIGS: Record<LazyPromptType, LazyPromptConfig> = {
       // Future: { type: 'agent-apply', label: 'Apply with Agent' }
     ]
   }
+}
+
+/**
+ * Get the interaction options from the active step of a process
+ */
+export function getActiveStepOptions(process: ProcessInstance): InteractionOption[] | null {
+  const activeStep = process.steps.find(s => s.id === process.currentState.activeStepId)
+  return activeStep?.interactionOptions ?? null
+}
+
+/**
+ * Get the active step of a process
+ */
+export function getActiveStep(process: ProcessInstance) {
+  return process.steps.find(s => s.id === process.currentState.activeStepId)
+}
+
+/**
+ * Generate a prompt for selecting an option
+ */
+export function generateSelectOptionPrompt(option: InteractionOption): string {
+  return option.label
 }
 
 /**
@@ -38,11 +68,18 @@ export function generateContinueProcessPrompt(process: ProcessInstance, processP
 export function generateLazyPrompt(
   type: LazyPromptType, 
   process: ProcessInstance, 
-  processPath: string
+  processPath: string,
+  option?: InteractionOption
 ): string {
   switch (type) {
     case 'continue-process':
       return generateContinueProcessPrompt(process, processPath)
+    case 'select-option':
+      if (option) {
+        return generateSelectOptionPrompt(option)
+      }
+      // Return placeholder if no option specified
+      return 'Select an option...'
     default:
       throw new Error(`Unknown lazy prompt type: ${type}`)
   }
@@ -68,16 +105,17 @@ export async function executeLazyPrompt(
   type: LazyPromptType,
   action: 'clipboard' | 'agent-apply',
   process: ProcessInstance,
-  processPath: string
+  processPath: string,
+  option?: InteractionOption
 ): Promise<{ success: boolean; message: string }> {
-  const prompt = generateLazyPrompt(type, process, processPath)
+  const prompt = generateLazyPrompt(type, process, processPath, option)
 
   switch (action) {
     case 'clipboard':
       const success = await copyToClipboard(prompt)
       return {
         success,
-        message: success ? 'Prompt copied to clipboard!' : 'Failed to copy to clipboard'
+        message: success ? 'Copied to clipboard!' : 'Failed to copy to clipboard'
       }
     case 'agent-apply':
       // Future implementation

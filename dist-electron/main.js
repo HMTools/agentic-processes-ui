@@ -107,6 +107,7 @@ function createWindow() {
     height: 900,
     minWidth: 1e3,
     minHeight: 700,
+    icon: join(__dirname$1, "../images/icon.png"),
     backgroundColor: "#0d1117",
     titleBarStyle: "hiddenInset",
     webPreferences: {
