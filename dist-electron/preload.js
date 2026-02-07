@@ -53,5 +53,50 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => {
       ipcRenderer.removeListener("watcher-error", subscription);
     };
+  },
+  // ============================================================================
+  // Agent Session API
+  // ============================================================================
+  // Get available agent types
+  agentGetAvailable: () => ipcRenderer.invoke("agent:get-available"),
+  // Create a new agent session
+  agentCreate: (agentType, workingDirectory, processPath) => ipcRenderer.invoke("agent:create", agentType, workingDirectory, processPath),
+  // Attach session to a process
+  agentAttach: (sessionId, processPath) => ipcRenderer.invoke("agent:attach", sessionId, processPath),
+  // Send a prompt to the agent
+  agentSendPrompt: (sessionId, prompt) => ipcRenderer.invoke("agent:send-prompt", sessionId, prompt),
+  // Send raw input (keyboard events)
+  agentInput: (sessionId, data) => ipcRenderer.invoke("agent:input", sessionId, data),
+  // Resize the terminal
+  agentResize: (sessionId, cols, rows) => ipcRenderer.invoke("agent:resize", sessionId, cols, rows),
+  // Kill a session
+  agentKill: (sessionId) => ipcRenderer.invoke("agent:kill", sessionId),
+  // List all sessions
+  agentList: () => ipcRenderer.invoke("agent:list"),
+  // Get a specific session
+  agentGet: (sessionId) => ipcRenderer.invoke("agent:get", sessionId),
+  // Get sessions for a specific process
+  agentGetForProcess: (processPath) => ipcRenderer.invoke("agent:get-for-process", processPath),
+  // Terminal window management
+  openTerminalWindow: (sessionId, processPath, processName) => ipcRenderer.invoke("agent:open-window", sessionId, processPath, processName),
+  closeTerminalWindow: () => ipcRenderer.invoke("agent:close-window"),
+  getWindowParams: () => ipcRenderer.invoke("agent:get-window-params"),
+  // Clipboard
+  clipboardReadText: () => ipcRenderer.invoke("clipboard:read-text"),
+  clipboardWriteText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
+  // Agent event listeners
+  onAgentOutput: (callback) => {
+    const subscription = (_event, data) => callback(data);
+    ipcRenderer.on("agent:output", subscription);
+    return () => {
+      ipcRenderer.removeListener("agent:output", subscription);
+    };
+  },
+  onAgentStatus: (callback) => {
+    const subscription = (_event, data) => callback(data);
+    ipcRenderer.on("agent:status", subscription);
+    return () => {
+      ipcRenderer.removeListener("agent:status", subscription);
+    };
   }
 });

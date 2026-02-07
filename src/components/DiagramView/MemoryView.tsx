@@ -1,11 +1,90 @@
-import type { ProcessMemory, MemoryStepEntry } from '../../types'
+import { useState, useCallback } from 'react'
+import type { ProcessMemory, MemoryStepEntry, ProcessFile } from '../../types'
+import { FileContentModal } from '../FileContentModal'
 
 interface MemoryViewProps {
   memory: ProcessMemory | null
   loading?: boolean
+  processPath?: string
 }
 
-export function MemoryView({ memory, loading }: MemoryViewProps) {
+/**
+ * Parse a file entry string like "step-design.md (rewritten for generic design)"
+ * into a file path and optional description.
+ */
+function parseFileEntry(entry: string): { filePath: string; description?: string } {
+  // Match pattern: "filename (description)" or just "filename"
+  const match = entry.match(/^(.+?)\s*\(([^)]+)\)\s*$/)
+  if (match) {
+    return { filePath: match[1].trim(), description: match[2].trim() }
+  }
+  return { filePath: entry.trim() }
+}
+
+/**
+ * Determine the file type from extension.
+ */
+function getFileType(fileName: string): 'markdown' | 'json' {
+  const ext = fileName.split('.').pop()?.toLowerCase()
+  if (ext === 'md' || ext === 'markdown') return 'markdown'
+  return 'json' // default to json for non-markdown files
+}
+
+/**
+ * Get the directory of a path (like path.dirname but without Node dependency).
+ */
+function getParentDir(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/')
+  const lastSlash = normalized.lastIndexOf('/')
+  if (lastSlash === -1) return '.'
+  return normalized.substring(0, lastSlash)
+}
+
+/**
+ * Resolve a file path relative to the process directory.
+ */
+function resolveFilePath(filePath: string, processPath: string): string {
+  // If the path is already absolute, return as-is
+  if (filePath.match(/^[a-zA-Z]:\\/) || filePath.startsWith('/')) {
+    return filePath
+  }
+  // Resolve relative to the process directory (processPath points to process.json)
+  const processDir = getParentDir(processPath)
+  // Normalize separators and join
+  const sep = processPath.includes('\\') ? '\\' : '/'
+  const normalizedFile = filePath.replace(/[/\\]/g, sep)
+  return `${processDir.replace(/[/\\]/g, sep)}${sep}${normalizedFile}`
+}
+
+/**
+ * Get just the file name from a path.
+ */
+function getFileName(filePath: string): string {
+  const parts = filePath.replace(/\\/g, '/').split('/')
+  return parts[parts.length - 1] || filePath
+}
+
+export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
+  const [selectedFile, setSelectedFile] = useState<ProcessFile | null>(null)
+
+  const handleFileClick = useCallback((fileEntry: string) => {
+    if (!processPath) return
+
+    const { filePath } = parseFileEntry(fileEntry)
+    const resolvedPath = resolveFilePath(filePath, processPath)
+    const fileName = getFileName(filePath)
+
+    const processFile: ProcessFile = {
+      name: fileName,
+      path: resolvedPath,
+      type: getFileType(fileName),
+      size: 0,
+      modifiedAt: new Date().toISOString()
+    }
+
+    setSelectedFile(processFile)
+  }, [processPath])
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center text-text-muted">
@@ -106,9 +185,23 @@ export function MemoryView({ memory, loading }: MemoryViewProps) {
             </h3>
             <div className="bg-surface rounded-lg border border-border p-3">
               <ul className="space-y-1">
-                {memory.crossReferences.filesModified.map((file, i) => (
-                  <li key={i} className="text-xs font-mono text-accent break-all">{file}</li>
-                ))}
+                {memory.crossReferences.filesModified.map((file, i) => {
+                  const { filePath, description } = parseFileEntry(file)
+                  return (
+                    <li key={i}>
+                      <button
+                        onClick={() => handleFileClick(file)}
+                        className="text-xs font-mono text-accent break-all text-left hover:text-accent-hover hover:underline transition-colors cursor-pointer"
+                        title={`Click to view ${filePath}`}
+                      >
+                        {filePath}
+                      </button>
+                      {description && (
+                        <span className="text-xs text-text-muted ml-1">({description})</span>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           </section>
@@ -159,17 +252,25 @@ export function MemoryView({ memory, loading }: MemoryViewProps) {
             </h3>
             <div className="space-y-3">
               {stepEntries.map(([stepKey, step]) => (
-                <StepMemoryCard key={stepKey} stepKey={stepKey} step={step} />
+                <StepMemoryCard key={stepKey} stepKey={stepKey} step={step} onFileClick={handleFileClick} />
               ))}
             </div>
           </section>
         )}
       </div>
+
+      {/* File Content Modal */}
+      {selectedFile && (
+        <FileContentModal
+          file={selectedFile}
+          onClose={() => setSelectedFile(null)}
+        />
+      )}
     </div>
   )
 }
 
-function StepMemoryCard({ stepKey, step }: { stepKey: string; step: MemoryStepEntry }) {
+function StepMemoryCard({ stepKey, step, onFileClick }: { stepKey: string; step: MemoryStepEntry; onFileClick: (file: string) => void }) {
   return (
     <div className="bg-surface rounded-lg border border-border overflow-hidden">
       <div className="px-3 py-2 bg-surface-elevated border-b border-border flex items-center justify-between">
@@ -214,9 +315,23 @@ function StepMemoryCard({ stepKey, step }: { stepKey: string; step: MemoryStepEn
               Files Created/Modified
             </label>
             <ul className="space-y-0.5">
-              {step.filesModifiedCreated.map((file, i) => (
-                <li key={i} className="text-xs font-mono text-accent break-all">{file}</li>
-              ))}
+              {step.filesModifiedCreated.map((file, i) => {
+                const { filePath, description } = parseFileEntry(file)
+                return (
+                  <li key={i}>
+                    <button
+                      onClick={() => onFileClick(file)}
+                      className="text-xs font-mono text-accent break-all text-left hover:text-accent-hover hover:underline transition-colors cursor-pointer"
+                      title={`Click to view ${filePath}`}
+                    >
+                      {filePath}
+                    </button>
+                    {description && (
+                      <span className="text-xs text-text-muted ml-1">({description})</span>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           </div>
         )}
@@ -249,4 +364,3 @@ function StepMemoryCard({ stepKey, step }: { stepKey: string; step: MemoryStepEn
     </div>
   )
 }
-

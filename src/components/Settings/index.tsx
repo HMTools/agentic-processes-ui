@@ -1,11 +1,34 @@
+import { useState, useEffect } from 'react'
 import { useSettings } from '../../hooks/useSettings'
+import type { AgentType } from '../../types'
 
 interface SettingsProps {
   onBack: () => void
 }
 
+// Available agent types for the dropdown
+const AGENT_TYPES: { value: AgentType; label: string; available: boolean }[] = [
+  { value: 'cursor', label: 'Cursor Agent', available: true },
+  { value: 'github-copilot', label: 'GitHub Copilot', available: false },
+  { value: 'claude-code', label: 'Claude Code', available: false }
+]
+
 export function Settings({ onBack }: SettingsProps) {
-  const { settings, updateLazyPromptsSettings, resetSettings } = useSettings()
+  const { settings, updateLazyPromptsSettings, updateAgentSettings, resetSettings } = useSettings()
+  const [availableAgents, setAvailableAgents] = useState(AGENT_TYPES)
+  
+  // Load available agents from electron
+  useEffect(() => {
+    if (window.electronAPI?.agentGetAvailable) {
+      window.electronAPI.agentGetAvailable().then(agents => {
+        setAvailableAgents(agents.map(a => ({
+          value: a.type as AgentType,
+          label: a.displayName,
+          available: a.available
+        })))
+      })
+    }
+  }, [])
 
   return (
     <div className="h-full w-full flex flex-col bg-background">
@@ -96,9 +119,8 @@ export function Settings({ onBack }: SettingsProps) {
                     value="agent-apply"
                     checked={settings.lazyPrompts.defaultAction === 'agent-apply'}
                     onChange={() => updateLazyPromptsSettings({ defaultAction: 'agent-apply' })}
-                    label="Apply with Agent"
-                    description="Send the prompt directly to an AI agent (coming soon)"
-                    disabled
+                    label="Send to Agent"
+                    description="Send the prompt directly to an active agent session"
                     icon={
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -106,6 +128,94 @@ export function Settings({ onBack }: SettingsProps) {
                       </svg>
                     }
                   />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Agent Settings Section */}
+          <section className="bg-surface rounded-lg border border-border overflow-hidden">
+            <div className="p-4 border-b border-border bg-surface-elevated">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-accent/20">
+                  <svg className="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                      d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-text-primary">Agent Sessions</h2>
+                  <p className="text-xs text-text-muted">Configure AI agent CLI integration</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              {/* Default Agent Type */}
+              <div>
+                <label htmlFor="default-agent-type" className="text-sm font-medium text-text-primary block mb-1">
+                  Default Agent Type
+                </label>
+                <p className="text-xs text-text-muted mb-2">
+                  The agent CLI to use when starting new sessions
+                </p>
+                <select
+                  id="default-agent-type"
+                  value={settings.agent.defaultAgentType}
+                  onChange={(e) => updateAgentSettings({ defaultAgentType: e.target.value as AgentType })}
+                  className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent"
+                >
+                  {availableAgents.map(agent => (
+                    <option 
+                      key={agent.value} 
+                      value={agent.value}
+                      disabled={!agent.available}
+                    >
+                      {agent.label} {!agent.available && '(Coming Soon)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Auto-attach Toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <label htmlFor="auto-attach" className="text-sm font-medium text-text-primary">
+                    Auto-attach to Process
+                  </label>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    Automatically attach agent session when viewing a process
+                  </p>
+                </div>
+                <Toggle
+                  id="auto-attach"
+                  checked={settings.agent.autoAttach}
+                  onChange={(checked) => updateAgentSettings({ autoAttach: checked })}
+                />
+              </div>
+
+              {/* Terminal Font Size */}
+              <div>
+                <label htmlFor="terminal-font-size" className="text-sm font-medium text-text-primary block mb-1">
+                  Terminal Font Size
+                </label>
+                <p className="text-xs text-text-muted mb-2">
+                  Font size for the embedded terminal ({settings.agent.terminalFontSize}px)
+                </p>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    id="terminal-font-size"
+                    min="10"
+                    max="24"
+                    step="1"
+                    value={settings.agent.terminalFontSize}
+                    onChange={(e) => updateAgentSettings({ terminalFontSize: parseInt(e.target.value) })}
+                    className="flex-1 h-2 bg-border rounded-lg appearance-none cursor-pointer accent-accent"
+                  />
+                  <span className="text-sm text-text-secondary w-12 text-right font-mono">
+                    {settings.agent.terminalFontSize}px
+                  </span>
                 </div>
               </div>
             </div>

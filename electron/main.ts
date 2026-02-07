@@ -1,10 +1,18 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard } from 'electron'
 import { join, dirname, extname } from 'path'
 import { fileURLToPath } from 'url'
 import { readFile, readdir, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { watch, type FSWatcher } from 'chokidar'
 import { createFileWatcher, stopFileWatcher } from './fileWatcher'
+import { 
+  getAgentManager, 
+  cleanupAgentManager, 
+  AGENT_CONFIGS,
+  type AgentType,
+  type AgentOutputEvent,
+  type AgentStatusEvent
+} from './agentSessionManager'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -12,6 +20,8 @@ const __dirname = dirname(__filename)
 let mainWindow: BrowserWindow | null = null
 let currentProjectPath: string | null = null
 let fileContentWatchers: Map<string, FSWatcher> = new Map()
+let agentManagerInitialized = false
+let terminalWindows: Map<string, BrowserWindow> = new Map()
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -39,6 +49,50 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+}
+
+// Create a detached terminal window for an agent session
+function createTerminalWindow(sessionId: string, processPath: string, processName: string) {
+  // If a window already exists for this session, focus it
+  const existing = terminalWindows.get(sessionId)
+  if (existing && !existing.isDestroyed()) {
+    existing.focus()
+    return
+  }
+
+  const terminalWin = new BrowserWindow({
+    width: 800,
+    height: 600,
+    minWidth: 600,
+    minHeight: 400,
+    icon: join(__dirname, '../images/icon.png'),
+    backgroundColor: '#0d1117',
+    title: processName || 'Agent Terminal',
+    webPreferences: {
+      preload: join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  })
+
+  // Remove menu bar for terminal windows
+  terminalWin.setMenuBarVisibility(false)
+
+  const queryParams = `?sessionId=${encodeURIComponent(sessionId)}&processPath=${encodeURIComponent(processPath)}&processName=${encodeURIComponent(processName)}`
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    terminalWin.loadURL(`${process.env.VITE_DEV_SERVER_URL}terminal-window.html${queryParams}`)
+  } else {
+    terminalWin.loadFile(join(__dirname, '../dist/terminal-window.html'), {
+      search: queryParams
+    })
+  }
+
+  terminalWindows.set(sessionId, terminalWin)
+
+  terminalWin.on('closed', () => {
+    terminalWindows.delete(sessionId)
   })
 }
 
@@ -398,6 +452,241 @@ ipcMain.handle('load-step-templates', async (_event, projectPath: string) => {
   }
 })
 
+// ============================================================================
+// Clipboard IPC Handlers
+// ============================================================================
+
+ipcMain.handle('clipboard:read-text', () => {
+  return clipboard.readText()
+})
+
+ipcMain.handle('clipboard:write-text', (_event, text: string) => {
+  clipboard.writeText(text)
+  return true
+})
+
+// ============================================================================
+// Agent Session IPC Handlers
+// ============================================================================
+
+// Initialize agent manager and setup event forwarding
+function initializeAgentManager() {
+  if (agentManagerInitialized) return
+  
+  const agentManager = getAgentManager()
+  
+  // Forward output events to all windows (main + detached terminals)
+  agentManager.on('output', (event: AgentOutputEvent) => {
+    mainWindow?.webContents.send('agent:output', event)
+    // Also forward to any detached terminal window for this session
+    const terminalWin = terminalWindows.get(event.sessionId)
+    if (terminalWin && !terminalWin.isDestroyed()) {
+      terminalWin.webContents.send('agent:output', event)
+    }
+  })
+  
+  // Forward status events to all windows (main + detached terminals)
+  agentManager.on('status', (event: AgentStatusEvent) => {
+    mainWindow?.webContents.send('agent:status', event)
+    // Also forward to any detached terminal window for this session
+    const terminalWin = terminalWindows.get(event.sessionId)
+    if (terminalWin && !terminalWin.isDestroyed()) {
+      terminalWin.webContents.send('agent:status', event)
+    }
+  })
+  
+  agentManagerInitialized = true
+}
+
+// Get available agent types
+ipcMain.handle('agent:get-available', () => {
+  return Object.entries(AGENT_CONFIGS).map(([type, config]) => ({
+    type,
+    displayName: config.displayName,
+    available: config.available
+  }))
+})
+
+// Create a new agent session
+ipcMain.handle('agent:create', async (_event, agentType: AgentType, workingDirectory: string, processPath?: string) => {
+  try {
+    initializeAgentManager()
+    const agentManager = getAgentManager()
+    const session = await agentManager.createSession(agentType, workingDirectory, processPath)
+    return { success: true, session }
+  } catch (error) {
+    console.error('Error creating agent session:', error)
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
+// Attach session to a process
+ipcMain.handle('agent:attach', async (_event, sessionId: string, processPath: string) => {
+  try {
+    const agentManager = getAgentManager()
+    await agentManager.attachToProcess(sessionId, processPath)
+    return { success: true }
+  } catch (error) {
+    console.error('Error attaching to process:', error)
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
+// Send a prompt to the agent
+ipcMain.handle('agent:send-prompt', async (_event, sessionId: string, prompt: string) => {
+  try {
+    const agentManager = getAgentManager()
+    await agentManager.sendPrompt(sessionId, prompt)
+    return { success: true }
+  } catch (error) {
+    console.error('Error sending prompt:', error)
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
+// Send raw input to the agent (keyboard events)
+ipcMain.handle('agent:input', (_event, sessionId: string, data: string) => {
+  try {
+    const agentManager = getAgentManager()
+    agentManager.sendInput(sessionId, data)
+    return { success: true }
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
+// Resize the terminal
+ipcMain.handle('agent:resize', (_event, sessionId: string, cols: number, rows: number) => {
+  try {
+    const agentManager = getAgentManager()
+    agentManager.resizeTerminal(sessionId, cols, rows)
+    return { success: true }
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
+// Kill a session
+ipcMain.handle('agent:kill', (_event, sessionId: string) => {
+  try {
+    const agentManager = getAgentManager()
+    agentManager.killSession(sessionId)
+    return { success: true }
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
+// List all sessions
+ipcMain.handle('agent:list', () => {
+  try {
+    const agentManager = getAgentManager()
+    return { success: true, sessions: agentManager.listSessions() }
+  } catch (error) {
+    return { 
+      success: false, 
+      sessions: [],
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
+// Get a specific session
+ipcMain.handle('agent:get', (_event, sessionId: string) => {
+  try {
+    const agentManager = getAgentManager()
+    const session = agentManager.getSession(sessionId)
+    return { success: true, session }
+  } catch (error) {
+    return { 
+      success: false, 
+      session: null,
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
+// Open a detached terminal window
+ipcMain.handle('agent:open-window', (_event, sessionId: string, processPath: string, processName: string) => {
+  try {
+    createTerminalWindow(sessionId, processPath, processName)
+    return { success: true }
+  } catch (error) {
+    console.error('Error opening terminal window:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
+})
+
+// Close a detached terminal window
+ipcMain.handle('agent:close-window', (_event) => {
+  try {
+    const win = BrowserWindow.getFocusedWindow()
+    if (win && win !== mainWindow) {
+      win.close()
+    }
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
+})
+
+// Get window parameters (URL query params) for the terminal window
+ipcMain.handle('agent:get-window-params', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) return null
+  
+  try {
+    const url = win.webContents.getURL()
+    const urlObj = new URL(url)
+    return {
+      sessionId: urlObj.searchParams.get('sessionId'),
+      processPath: urlObj.searchParams.get('processPath'),
+      processName: urlObj.searchParams.get('processName')
+    }
+  } catch {
+    return null
+  }
+})
+
+// Get sessions for a specific process
+ipcMain.handle('agent:get-for-process', (_event, processPath: string) => {
+  try {
+    const agentManager = getAgentManager()
+    const sessions = agentManager.getSessionsForProcess(processPath)
+    return { success: true, sessions }
+  } catch (error) {
+    return { 
+      success: false, 
+      sessions: [],
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
 // App lifecycle
 app.whenReady().then(() => {
   // Remove default menu bar
@@ -419,6 +708,17 @@ app.on('window-all-closed', () => {
     watcher.close()
   }
   fileContentWatchers.clear()
+  
+  // Close all terminal windows
+  for (const [, win] of terminalWindows) {
+    if (!win.isDestroyed()) {
+      win.close()
+    }
+  }
+  terminalWindows.clear()
+  
+  // Clean up agent sessions
+  cleanupAgentManager()
   
   if (process.platform !== 'darwin') {
     app.quit()

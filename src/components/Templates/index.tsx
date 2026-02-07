@@ -8,11 +8,12 @@ import { TemplateDetail } from './TemplateDetail'
 interface TemplatesProps {
   projectPath: string | null
   onBack: () => void
+  onUseTemplate?: (template: ProcessTemplate) => void
 }
 
 type TabType = 'process' | 'step'
 
-export function Templates({ projectPath, onBack }: TemplatesProps) {
+export function Templates({ projectPath, onBack, onUseTemplate }: TemplatesProps) {
   const {
     processTemplates,
     stepTemplates,
@@ -221,6 +222,7 @@ export function Templates({ projectPath, onBack }: TemplatesProps) {
                     template={selectedTemplate}
                     templateType={activeTab}
                     onClose={handleCloseDetail}
+                    onUseTemplate={onUseTemplate}
                   />
                 </div>
               )}

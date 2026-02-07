@@ -98,11 +98,6 @@ export const StepNode = memo(function StepNode({ data, selected }: StepNodeProps
                 Approval
               </span>
             )}
-            {step.interactionOptions && step.interactionOptions.length > 0 && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-accent/20 text-accent">
-                Options
-              </span>
-            )}
           </div>
           <h4 className="text-sm font-medium text-text-primary leading-tight">
             {step.name}

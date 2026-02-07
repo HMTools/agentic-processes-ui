@@ -1,9 +1,14 @@
-import { ipcMain, dialog, app, Menu, BrowserWindow } from "electron";
+import { ipcMain, dialog, clipboard, BrowserWindow, app, Menu } from "electron";
 import { join, dirname, extname } from "path";
 import { fileURLToPath } from "url";
 import { readFile, readdir, stat } from "fs/promises";
 import { existsSync } from "fs";
 import { watch } from "chokidar";
+import { spawn } from "node-pty";
+import { EventEmitter } from "events";
+import { randomUUID } from "crypto";
+import { platform } from "os";
+import { execSync } from "child_process";
 let watcher = null;
 function createFileWatcher(projectPath, callback, onError) {
   stopFileWatcher();
@@ -96,11 +101,367 @@ function stopFileWatcher() {
     console.log("File watcher stopped");
   }
 }
+function readRegistryValue(key, valueName) {
+  try {
+    const output = execSync(`reg query "${key}" /v "${valueName}"`, {
+      encoding: "utf8",
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    const match = output.match(/REG_(?:SZ|EXPAND_SZ)\s+(.+)$/m);
+    return match ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+function getFreshWindowsPath() {
+  try {
+    const systemPath = readRegistryValue(
+      "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+      "Path"
+    ) || "";
+    const userPath = readRegistryValue(
+      "HKEY_CURRENT_USER\\Environment",
+      "Path"
+    ) || "";
+    const combinedPath = userPath && systemPath ? `${userPath};${systemPath}` : userPath || systemPath;
+    return combinedPath;
+  } catch {
+    return process.env.PATH || process.env.Path || "";
+  }
+}
+function getFreshWindowsEnv() {
+  const env = { ...process.env };
+  const freshPath = getFreshWindowsPath();
+  if (freshPath) {
+    env.PATH = freshPath;
+    env.Path = freshPath;
+  }
+  return env;
+}
+function getCursorCliDir() {
+  const localAppData = process.env.LOCALAPPDATA || "";
+  return `${localAppData}\\cursor-agent`;
+}
+function getWindowsEnvWithCursorPath(baseEnv) {
+  const cursorCliDir = getCursorCliDir();
+  const currentPath = baseEnv.PATH || baseEnv.Path || "";
+  if (!currentPath.toLowerCase().includes(cursorCliDir.toLowerCase())) {
+    return {
+      ...baseEnv,
+      PATH: `${cursorCliDir};${currentPath}`
+    };
+  }
+  return baseEnv;
+}
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+const AGENT_CONFIGS = {
+  "cursor": {
+    command: "agent",
+    // Works because we add cursor-agent dir to PATH
+    args: [],
+    processAttachCommand: (path) => `/process-continue ${path}`,
+    available: true,
+    displayName: "Cursor Agent"
+  },
+  "github-copilot": {
+    command: "gh",
+    args: ["copilot"],
+    processAttachCommand: (_path) => "",
+    // Future implementation
+    available: false,
+    displayName: "GitHub Copilot"
+  },
+  "claude-code": {
+    command: "claude",
+    args: [],
+    processAttachCommand: (_path) => "",
+    // Future implementation
+    available: false,
+    displayName: "Claude Code"
+  }
+};
+class AgentSessionManager extends EventEmitter {
+  sessions = /* @__PURE__ */ new Map();
+  shell;
+  constructor() {
+    super();
+    this.shell = platform() === "win32" ? "cmd.exe" : process.env.SHELL || "/bin/bash";
+  }
+  /**
+   * Get all available agent types with their configurations
+   */
+  getAvailableAgents() {
+    return Object.entries(AGENT_CONFIGS).filter(([, config]) => config.available).map(([type, config]) => ({ type, config }));
+  }
+  /**
+   * Create a new agent session
+   */
+  async createSession(agentType, workingDirectory, processPath) {
+    const config = AGENT_CONFIGS[agentType];
+    if (!config.available) {
+      throw new Error(`Agent type '${agentType}' is not available yet`);
+    }
+    const sessionId = randomUUID();
+    const session = {
+      id: sessionId,
+      agentType,
+      attachedProcessId: null,
+      attachedProcessPath: processPath || null,
+      status: "starting",
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      workingDirectory,
+      pty: null,
+      outputBuffer: ""
+    };
+    this.sessions.set(sessionId, session);
+    try {
+      const isWindows = platform() === "win32";
+      const baseEnv = isWindows ? getFreshWindowsEnv() : process.env;
+      const envOptions = isWindows ? getWindowsEnvWithCursorPath(baseEnv) : { ...baseEnv, TERM: "xterm-256color", COLORTERM: "truecolor" };
+      const pty = spawn(this.shell, [], {
+        name: "xterm-256color",
+        cols: 120,
+        rows: 30,
+        cwd: workingDirectory,
+        env: envOptions,
+        useConpty: isWindows
+        // Use Windows ConPTY for better compatibility
+      });
+      session.pty = pty;
+      pty.onData((data) => {
+        session.outputBuffer += data;
+        if (session.outputBuffer.length > 10240) {
+          session.outputBuffer = session.outputBuffer.slice(-10240);
+        }
+        this.emit("output", {
+          sessionId,
+          data
+        });
+      });
+      pty.onExit(({ exitCode }) => {
+        const currentSession = this.sessions.get(sessionId);
+        if (currentSession) {
+          currentSession.status = exitCode === 0 ? "stopped" : "error";
+          currentSession.pty = null;
+          this.emit("status", {
+            sessionId,
+            status: currentSession.status,
+            error: exitCode !== 0 ? `Process exited with code ${exitCode}` : void 0
+          });
+        }
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const agentCommand = config.args?.length ? `${config.command} ${config.args.join(" ")}` : config.command;
+      pty.write(`${agentCommand}\r`);
+      session.status = "running";
+      this.emit("status", {
+        sessionId,
+        status: "running"
+      });
+      if (processPath) {
+        await new Promise((resolve) => setTimeout(resolve, 2e3));
+        await this.attachToProcess(sessionId, processPath);
+      }
+      return this.getSessionPublic(session);
+    } catch (error) {
+      session.status = "error";
+      this.emit("status", {
+        sessionId,
+        status: "error",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+      throw error;
+    }
+  }
+  /**
+   * Attach an existing session to an agentic process
+   */
+  async attachToProcess(sessionId, processPath) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session '${sessionId}' not found`);
+    }
+    if (!session.pty) {
+      throw new Error(`Session '${sessionId}' has no active PTY`);
+    }
+    const config = AGENT_CONFIGS[session.agentType];
+    const attachCommand = config.processAttachCommand(processPath);
+    if (!attachCommand) {
+      throw new Error(`Agent type '${session.agentType}' does not support process attachment`);
+    }
+    this.clearOutputBuffer(sessionId);
+    session.pty.write(attachCommand);
+    const commandEnd = attachCommand.slice(-20);
+    const echoPattern = new RegExp(escapeRegex(commandEnd));
+    await this.waitForOutput(sessionId, echoPattern, 5e3);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    session.pty.write("\r");
+    session.attachedProcessPath = processPath;
+    this.emit("status", {
+      sessionId,
+      status: session.status
+    });
+  }
+  /**
+   * Send a prompt/command to the agent session
+   */
+  async sendPrompt(sessionId, prompt) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session '${sessionId}' not found`);
+    }
+    if (!session.pty) {
+      throw new Error(`Session '${sessionId}' has no active PTY`);
+    }
+    if (session.status !== "running") {
+      throw new Error(`Session '${sessionId}' is not running (status: ${session.status})`);
+    }
+    this.clearOutputBuffer(sessionId);
+    session.pty.write(prompt);
+    const promptEnd = prompt.slice(-20);
+    const echoPattern = new RegExp(escapeRegex(promptEnd));
+    await this.waitForOutput(sessionId, echoPattern, 5e3);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    session.pty.write("\r");
+  }
+  /**
+   * Resize the PTY terminal
+   */
+  resizeTerminal(sessionId, cols, rows) {
+    const session = this.sessions.get(sessionId);
+    if (session?.pty) {
+      session.pty.resize(cols, rows);
+    }
+  }
+  /**
+   * Send raw input to the PTY (for keyboard events)
+   */
+  sendInput(sessionId, data) {
+    const session = this.sessions.get(sessionId);
+    if (session?.pty) {
+      session.pty.write(data);
+    }
+  }
+  /**
+   * Kill an agent session
+   */
+  killSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+    if (session.pty) {
+      session.pty.kill();
+      session.pty = null;
+    }
+    session.status = "stopped";
+    this.emit("status", {
+      sessionId,
+      status: "stopped"
+    });
+  }
+  /**
+   * Get a session by ID
+   */
+  getSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    return session ? this.getSessionPublic(session) : null;
+  }
+  /**
+   * Get all active sessions
+   */
+  listSessions() {
+    return Array.from(this.sessions.values()).map((s) => this.getSessionPublic(s));
+  }
+  /**
+   * Get sessions attached to a specific process
+   */
+  getSessionsForProcess(processPath) {
+    return Array.from(this.sessions.values()).filter((s) => s.attachedProcessPath === processPath).map((s) => this.getSessionPublic(s));
+  }
+  /**
+   * Clean up all sessions
+   */
+  cleanup() {
+    for (const [sessionId] of this.sessions) {
+      this.killSession(sessionId);
+    }
+    this.sessions.clear();
+  }
+  /**
+   * Wait for a pattern to appear in the PTY output
+   * Returns true if pattern found, false if timeout
+   */
+  waitForOutput(sessionId, pattern, timeoutMs = 5e3) {
+    return new Promise((resolve) => {
+      const session = this.sessions.get(sessionId);
+      if (!session) {
+        resolve(false);
+        return;
+      }
+      if (pattern.test(session.outputBuffer)) {
+        resolve(true);
+        return;
+      }
+      const checkOutput = (event) => {
+        if (event.sessionId !== sessionId) return;
+        const currentSession = this.sessions.get(sessionId);
+        if (currentSession && pattern.test(currentSession.outputBuffer)) {
+          cleanup();
+          resolve(true);
+        }
+      };
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        resolve(false);
+      }, timeoutMs);
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        this.off("output", checkOutput);
+      };
+      this.on("output", checkOutput);
+    });
+  }
+  /**
+   * Clear the output buffer for a session
+   */
+  clearOutputBuffer(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.outputBuffer = "";
+    }
+  }
+  /**
+   * Convert internal session to public session (without PTY reference)
+   */
+  getSessionPublic(session) {
+    const { pty: _pty, outputBuffer: _buffer, ...publicSession } = session;
+    return publicSession;
+  }
+}
+let agentManager = null;
+function getAgentManager() {
+  if (!agentManager) {
+    agentManager = new AgentSessionManager();
+  }
+  return agentManager;
+}
+function cleanupAgentManager() {
+  if (agentManager) {
+    agentManager.cleanup();
+    agentManager = null;
+  }
+}
 const __filename$1 = fileURLToPath(import.meta.url);
 const __dirname$1 = dirname(__filename$1);
 let mainWindow = null;
 let currentProjectPath = null;
 let fileContentWatchers = /* @__PURE__ */ new Map();
+let agentManagerInitialized = false;
+let terminalWindows = /* @__PURE__ */ new Map();
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -124,6 +485,40 @@ function createWindow() {
   }
   mainWindow.on("closed", () => {
     mainWindow = null;
+  });
+}
+function createTerminalWindow(sessionId, processPath, processName) {
+  const existing = terminalWindows.get(sessionId);
+  if (existing && !existing.isDestroyed()) {
+    existing.focus();
+    return;
+  }
+  const terminalWin = new BrowserWindow({
+    width: 800,
+    height: 600,
+    minWidth: 600,
+    minHeight: 400,
+    icon: join(__dirname$1, "../images/icon.png"),
+    backgroundColor: "#0d1117",
+    title: processName || "Agent Terminal",
+    webPreferences: {
+      preload: join(__dirname$1, "preload.js"),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  });
+  terminalWin.setMenuBarVisibility(false);
+  const queryParams = `?sessionId=${encodeURIComponent(sessionId)}&processPath=${encodeURIComponent(processPath)}&processName=${encodeURIComponent(processName)}`;
+  if (process.env.VITE_DEV_SERVER_URL) {
+    terminalWin.loadURL(`${process.env.VITE_DEV_SERVER_URL}terminal-window.html${queryParams}`);
+  } else {
+    terminalWin.loadFile(join(__dirname$1, "../dist/terminal-window.html"), {
+      search: queryParams
+    });
+  }
+  terminalWindows.set(sessionId, terminalWin);
+  terminalWin.on("closed", () => {
+    terminalWindows.delete(sessionId);
   });
 }
 ipcMain.handle("select-project-folder", async () => {
@@ -412,6 +807,194 @@ ipcMain.handle("load-step-templates", async (_event, projectPath) => {
     return [];
   }
 });
+ipcMain.handle("clipboard:read-text", () => {
+  return clipboard.readText();
+});
+ipcMain.handle("clipboard:write-text", (_event, text) => {
+  clipboard.writeText(text);
+  return true;
+});
+function initializeAgentManager() {
+  if (agentManagerInitialized) return;
+  const agentManager2 = getAgentManager();
+  agentManager2.on("output", (event) => {
+    mainWindow?.webContents.send("agent:output", event);
+    const terminalWin = terminalWindows.get(event.sessionId);
+    if (terminalWin && !terminalWin.isDestroyed()) {
+      terminalWin.webContents.send("agent:output", event);
+    }
+  });
+  agentManager2.on("status", (event) => {
+    mainWindow?.webContents.send("agent:status", event);
+    const terminalWin = terminalWindows.get(event.sessionId);
+    if (terminalWin && !terminalWin.isDestroyed()) {
+      terminalWin.webContents.send("agent:status", event);
+    }
+  });
+  agentManagerInitialized = true;
+}
+ipcMain.handle("agent:get-available", () => {
+  return Object.entries(AGENT_CONFIGS).map(([type, config]) => ({
+    type,
+    displayName: config.displayName,
+    available: config.available
+  }));
+});
+ipcMain.handle("agent:create", async (_event, agentType, workingDirectory, processPath) => {
+  try {
+    initializeAgentManager();
+    const agentManager2 = getAgentManager();
+    const session = await agentManager2.createSession(agentType, workingDirectory, processPath);
+    return { success: true, session };
+  } catch (error) {
+    console.error("Error creating agent session:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:attach", async (_event, sessionId, processPath) => {
+  try {
+    const agentManager2 = getAgentManager();
+    await agentManager2.attachToProcess(sessionId, processPath);
+    return { success: true };
+  } catch (error) {
+    console.error("Error attaching to process:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:send-prompt", async (_event, sessionId, prompt) => {
+  try {
+    const agentManager2 = getAgentManager();
+    await agentManager2.sendPrompt(sessionId, prompt);
+    return { success: true };
+  } catch (error) {
+    console.error("Error sending prompt:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:input", (_event, sessionId, data) => {
+  try {
+    const agentManager2 = getAgentManager();
+    agentManager2.sendInput(sessionId, data);
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:resize", (_event, sessionId, cols, rows) => {
+  try {
+    const agentManager2 = getAgentManager();
+    agentManager2.resizeTerminal(sessionId, cols, rows);
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:kill", (_event, sessionId) => {
+  try {
+    const agentManager2 = getAgentManager();
+    agentManager2.killSession(sessionId);
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:list", () => {
+  try {
+    const agentManager2 = getAgentManager();
+    return { success: true, sessions: agentManager2.listSessions() };
+  } catch (error) {
+    return {
+      success: false,
+      sessions: [],
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:get", (_event, sessionId) => {
+  try {
+    const agentManager2 = getAgentManager();
+    const session = agentManager2.getSession(sessionId);
+    return { success: true, session };
+  } catch (error) {
+    return {
+      success: false,
+      session: null,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:open-window", (_event, sessionId, processPath, processName) => {
+  try {
+    createTerminalWindow(sessionId, processPath, processName);
+    return { success: true };
+  } catch (error) {
+    console.error("Error opening terminal window:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:close-window", (_event) => {
+  try {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win && win !== mainWindow) {
+      win.close();
+    }
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:get-window-params", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return null;
+  try {
+    const url = win.webContents.getURL();
+    const urlObj = new URL(url);
+    return {
+      sessionId: urlObj.searchParams.get("sessionId"),
+      processPath: urlObj.searchParams.get("processPath"),
+      processName: urlObj.searchParams.get("processName")
+    };
+  } catch {
+    return null;
+  }
+});
+ipcMain.handle("agent:get-for-process", (_event, processPath) => {
+  try {
+    const agentManager2 = getAgentManager();
+    const sessions = agentManager2.getSessionsForProcess(processPath);
+    return { success: true, sessions };
+  } catch (error) {
+    return {
+      success: false,
+      sessions: [],
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   createWindow();
@@ -427,6 +1010,13 @@ app.on("window-all-closed", () => {
     watcher2.close();
   }
   fileContentWatchers.clear();
+  for (const [, win] of terminalWindows) {
+    if (!win.isDestroyed()) {
+      win.close();
+    }
+  }
+  terminalWindows.clear();
+  cleanupAgentManager();
   if (process.platform !== "darwin") {
     app.quit();
   }

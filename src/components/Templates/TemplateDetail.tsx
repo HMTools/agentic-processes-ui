@@ -50,11 +50,12 @@ interface TemplateDetailProps {
   template: ProcessTemplate | StepTemplate
   templateType: 'process' | 'step'
   onClose: () => void
+  onUseTemplate?: (template: ProcessTemplate) => void
 }
 
 type ViewMode = 'markdown' | 'formatted' | 'json'
 
-export function TemplateDetail({ template, templateType, onClose }: TemplateDetailProps) {
+export function TemplateDetail({ template, templateType, onClose, onUseTemplate }: TemplateDetailProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('markdown')
 
   return (
@@ -83,14 +84,27 @@ export function TemplateDetail({ template, templateType, onClose }: TemplateDeta
               <p className="text-xs text-text-muted">{template.name}</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-md hover:bg-surface transition-colors"
-          >
-            <svg className="w-4 h-4 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            {templateType === 'process' && onUseTemplate && (
+              <button
+                onClick={() => onUseTemplate(template as ProcessTemplate)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-background hover:bg-accent/90 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Use Template
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-md hover:bg-surface transition-colors"
+            >
+              <svg className="w-4 h-4 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* View mode toggle */}

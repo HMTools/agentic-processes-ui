@@ -43,6 +43,48 @@ export interface ProcessFile {
   modifiedAt: string
 }
 
+// ============================================================================
+// Agent Types
+// ============================================================================
+
+export type AgentType = 'cursor' | 'github-copilot' | 'claude-code'
+
+export type AgentSessionStatus = 'starting' | 'running' | 'stopped' | 'error'
+
+export interface AgentSession {
+  id: string
+  agentType: AgentType
+  attachedProcessId: string | null
+  attachedProcessPath: string | null
+  status: AgentSessionStatus
+  createdAt: string
+  workingDirectory: string
+}
+
+export interface AgentOutputEvent {
+  sessionId: string
+  data: string
+}
+
+export interface AgentStatusEvent {
+  sessionId: string
+  status: AgentSessionStatus
+  error?: string
+}
+
+export interface AgentAvailableType {
+  type: AgentType
+  displayName: string
+  available: boolean
+}
+
+export interface AgentResult<T = void> {
+  success: boolean
+  error?: string
+  session?: AgentSession
+  sessions?: AgentSession[]
+}
+
 // Expose protected methods to renderer
 contextBridge.exposeInMainWorld('electronAPI', {
   // Project selection
@@ -115,6 +157,83 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => {
       ipcRenderer.removeListener('watcher-error', subscription)
     }
+  },
+  
+  // ============================================================================
+  // Agent Session API
+  // ============================================================================
+  
+  // Get available agent types
+  agentGetAvailable: () => 
+    ipcRenderer.invoke('agent:get-available') as Promise<AgentAvailableType[]>,
+  
+  // Create a new agent session
+  agentCreate: (agentType: AgentType, workingDirectory: string, processPath?: string) =>
+    ipcRenderer.invoke('agent:create', agentType, workingDirectory, processPath) as Promise<AgentResult<AgentSession>>,
+  
+  // Attach session to a process
+  agentAttach: (sessionId: string, processPath: string) =>
+    ipcRenderer.invoke('agent:attach', sessionId, processPath) as Promise<AgentResult>,
+  
+  // Send a prompt to the agent
+  agentSendPrompt: (sessionId: string, prompt: string) =>
+    ipcRenderer.invoke('agent:send-prompt', sessionId, prompt) as Promise<AgentResult>,
+  
+  // Send raw input (keyboard events)
+  agentInput: (sessionId: string, data: string) =>
+    ipcRenderer.invoke('agent:input', sessionId, data) as Promise<AgentResult>,
+  
+  // Resize the terminal
+  agentResize: (sessionId: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('agent:resize', sessionId, cols, rows) as Promise<AgentResult>,
+  
+  // Kill a session
+  agentKill: (sessionId: string) =>
+    ipcRenderer.invoke('agent:kill', sessionId) as Promise<AgentResult>,
+  
+  // List all sessions
+  agentList: () =>
+    ipcRenderer.invoke('agent:list') as Promise<AgentResult & { sessions: AgentSession[] }>,
+  
+  // Get a specific session
+  agentGet: (sessionId: string) =>
+    ipcRenderer.invoke('agent:get', sessionId) as Promise<AgentResult & { session: AgentSession | null }>,
+  
+  // Get sessions for a specific process
+  agentGetForProcess: (processPath: string) =>
+    ipcRenderer.invoke('agent:get-for-process', processPath) as Promise<AgentResult & { sessions: AgentSession[] }>,
+  
+  // Terminal window management
+  openTerminalWindow: (sessionId: string, processPath: string, processName: string) =>
+    ipcRenderer.invoke('agent:open-window', sessionId, processPath, processName) as Promise<AgentResult>,
+  
+  closeTerminalWindow: () =>
+    ipcRenderer.invoke('agent:close-window') as Promise<AgentResult>,
+  
+  getWindowParams: () =>
+    ipcRenderer.invoke('agent:get-window-params') as Promise<{ sessionId: string; processPath: string; processName: string } | null>,
+  
+  // Clipboard
+  clipboardReadText: () =>
+    ipcRenderer.invoke('clipboard:read-text') as Promise<string>,
+  clipboardWriteText: (text: string) =>
+    ipcRenderer.invoke('clipboard:write-text', text) as Promise<boolean>,
+  
+  // Agent event listeners
+  onAgentOutput: (callback: (event: AgentOutputEvent) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: AgentOutputEvent) => callback(data)
+    ipcRenderer.on('agent:output', subscription)
+    return () => {
+      ipcRenderer.removeListener('agent:output', subscription)
+    }
+  },
+  
+  onAgentStatus: (callback: (event: AgentStatusEvent) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: AgentStatusEvent) => callback(data)
+    ipcRenderer.on('agent:status', subscription)
+    return () => {
+      ipcRenderer.removeListener('agent:status', subscription)
+    }
   }
 })
 
@@ -139,6 +258,25 @@ declare global {
       onLogUpdate: (callback: (event: LogUpdateEvent) => void) => () => void
       onFileContentUpdate: (callback: (event: FileContentUpdateEvent) => void) => () => void
       onWatcherError: (callback: (event: WatcherErrorEvent) => void) => () => void
+      // Clipboard API
+      clipboardReadText: () => Promise<string>
+      clipboardWriteText: (text: string) => Promise<boolean>
+      // Agent API
+      agentGetAvailable: () => Promise<AgentAvailableType[]>
+      agentCreate: (agentType: AgentType, workingDirectory: string, processPath?: string) => Promise<AgentResult<AgentSession>>
+      agentAttach: (sessionId: string, processPath: string) => Promise<AgentResult>
+      agentSendPrompt: (sessionId: string, prompt: string) => Promise<AgentResult>
+      agentInput: (sessionId: string, data: string) => Promise<AgentResult>
+      agentResize: (sessionId: string, cols: number, rows: number) => Promise<AgentResult>
+      agentKill: (sessionId: string) => Promise<AgentResult>
+      agentList: () => Promise<AgentResult & { sessions: AgentSession[] }>
+      agentGet: (sessionId: string) => Promise<AgentResult & { session: AgentSession | null }>
+      agentGetForProcess: (processPath: string) => Promise<AgentResult & { sessions: AgentSession[] }>
+      openTerminalWindow: (sessionId: string, processPath: string, processName: string) => Promise<AgentResult>
+      closeTerminalWindow: () => Promise<AgentResult>
+      getWindowParams: () => Promise<{ sessionId: string; processPath: string; processName: string } | null>
+      onAgentOutput: (callback: (event: AgentOutputEvent) => void) => () => void
+      onAgentStatus: (callback: (event: AgentStatusEvent) => void) => () => void
     }
   }
 }

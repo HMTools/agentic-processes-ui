@@ -17,7 +17,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['electron', 'chokidar']
+              external: ['electron', 'chokidar', 'node-pty']
             }
           }
         }
@@ -41,6 +41,14 @@ export default defineConfig({
     ]),
     renderer()
   ],
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        terminal: resolve(__dirname, 'terminal-window.html')
+      }
+    }
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src')

@@ -1,10 +1,14 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { ProcessInstance, ProcessStep, ProcessMemory, ProcessLog, ChildProcessRef, ParentProcessRef } from '../../types'
 import { ProcessDiagram } from './ProcessDiagram'
 import { RightPanel } from './RightPanel'
 import { Alert } from '../Alert'
 import { LazyPromptButton } from '../LazyPromptButton'
+import { LazyPromptModal } from '../LazyPromptModal'
+import { AgentSessionPanel } from '../AgentSessionPanel'
 import { getStatusColor, formatTimestamp } from '../../services/processService'
+import { useAgentSessions } from '../../hooks/useAgentSessions'
+import { useSettings } from '../../hooks/useSettings'
 
 interface DiagramViewProps {
   process: ProcessInstance
@@ -20,6 +24,11 @@ const isElectron = () => {
   return typeof window !== 'undefined' && window.electronAPI !== undefined
 }
 
+// Agent panel resize constants
+const AGENT_PANEL_MIN_HEIGHT = 150
+const AGENT_PANEL_MAX_HEIGHT = 600
+const AGENT_PANEL_DEFAULT_HEIGHT = 300
+
 export function DiagramView({ process, processPath, onBack, onNavigateToProcess, getProcess, navigatedFromPath }: DiagramViewProps) {
   const [selectedStep, setSelectedStep] = useState<ProcessStep | null>(null)
   const [memory, setMemory] = useState<ProcessMemory | null>(null)
@@ -27,6 +36,22 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [logLoading, setLogLoading] = useState(false)
   const [alertMessage, setAlertMessage] = useState<string | null>(null)
+  const [showAgentPanel, setShowAgentPanel] = useState(false)
+  
+  // Agent panel resize state
+  const [agentPanelHeight, setAgentPanelHeight] = useState(AGENT_PANEL_DEFAULT_HEIGHT)
+  const [isResizingAgent, setIsResizingAgent] = useState(false)
+  const mainContentRef = useRef<HTMLDivElement>(null)
+  
+  // Lazy prompt modal state (for Shift+P shortcut)
+  const [showLazyPromptModal, setShowLazyPromptModal] = useState(false)
+  const { settings } = useSettings()
+  
+  // Agent sessions for this process
+  const { hasActiveSession } = useAgentSessions({ processPath })
+  
+  // Get project path for agent working directory
+  const projectPath = process.metadata.projectPath || ''
 
   const completedSteps = process.steps.filter(s => s.status === 'completed').length
   const progress = Math.round((completedSteps / process.steps.length) * 100)
@@ -171,6 +196,62 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
     return undefined
   }, [getProcess, resolveProcessPath])
 
+  // Agent panel resize handlers
+  const handleAgentResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizingAgent(true)
+  }, [])
+
+  const handleAgentResizeMove = useCallback((e: MouseEvent) => {
+    if (!mainContentRef.current) return
+    
+    const containerRect = mainContentRef.current.getBoundingClientRect()
+    const newHeight = containerRect.bottom - e.clientY
+    const clampedHeight = Math.min(Math.max(newHeight, AGENT_PANEL_MIN_HEIGHT), AGENT_PANEL_MAX_HEIGHT)
+    setAgentPanelHeight(clampedHeight)
+  }, [])
+
+  const handleAgentResizeEnd = useCallback(() => {
+    setIsResizingAgent(false)
+  }, [])
+
+  // Agent panel resize - global mouse listeners
+  useEffect(() => {
+    if (isResizingAgent) {
+      document.addEventListener('mousemove', handleAgentResizeMove)
+      document.addEventListener('mouseup', handleAgentResizeEnd)
+      document.body.style.cursor = 'ns-resize'
+      document.body.style.userSelect = 'none'
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleAgentResizeMove)
+      document.removeEventListener('mouseup', handleAgentResizeEnd)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [isResizingAgent, handleAgentResizeMove, handleAgentResizeEnd])
+
+  // Global Shift+P keyboard shortcut to open Lazy Prompts modal
+  useEffect(() => {
+    if (!settings.lazyPrompts.enabled) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input or textarea
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return
+      }
+
+      if (e.shiftKey && e.key === 'P') {
+        e.preventDefault()
+        setShowLazyPromptModal(true)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [settings.lazyPrompts.enabled])
+
   return (
     <div className="h-full w-full flex flex-col bg-background">
       {/* Header */}
@@ -198,6 +279,29 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
               processPath={processPath!}
               variant="default"
             />
+            {/* Agent Panel Toggle */}
+            <button
+              onClick={() => setShowAgentPanel(!showAgentPanel)}
+              className={`
+                flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-all
+                ${showAgentPanel 
+                  ? 'bg-accent text-white' 
+                  : hasActiveSession
+                    ? 'bg-status-active/20 text-status-active border border-status-active/30 hover:bg-status-active/30'
+                    : 'bg-surface border border-border text-text-secondary hover:border-accent hover:text-accent'
+                }
+              `}
+              title={showAgentPanel ? 'Hide agent panel' : 'Show agent panel'}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <span>Agent</span>
+              {hasActiveSession && !showAgentPanel && (
+                <span className="w-2 h-2 rounded-full bg-status-active animate-pulse" />
+              )}
+            </button>
             <span className={`px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(process.status)} bg-current/10`}>
               {process.status}
             </span>
@@ -238,41 +342,64 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
         </div>
       </div>
 
-      {/* Main content area with diagram and right panel */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left side: Diagram with step details */}
-        <div className="flex-1 flex overflow-hidden min-h-0 relative">
-          {/* Diagram */}
-          <div className="flex-1">
-            <ProcessDiagram 
-              process={process} 
-              onStepClick={setSelectedStep}
-              onSubProcessClick={handleSubProcessClick}
-              onParentClick={handleParentClick}
-              focusNodeId={focusNodeId}
-              getSubProcess={getSubProcess}
-            />
-          </div>
-
-          {/* Step details sidebar (overlays on diagram area) */}
-          {selectedStep && (
-            <div className="absolute right-0 top-0 bottom-0 w-80 border-l border-border bg-surface overflow-y-auto shadow-lg z-10">
-              <StepDetails 
-                step={selectedStep} 
-                onClose={() => setSelectedStep(null)}
+      {/* Main content area with diagram, panels, and optional agent */}
+      <div ref={mainContentRef} className="flex-1 flex flex-col overflow-hidden">
+        {/* Top area: Diagram and right panel */}
+        <div className={`flex overflow-hidden ${showAgentPanel ? 'flex-1' : 'flex-1'}`} style={{ minHeight: showAgentPanel ? '50%' : undefined }}>
+          {/* Left side: Diagram with step details */}
+          <div className="flex-1 flex overflow-hidden min-h-0 relative">
+            {/* Diagram */}
+            <div className="flex-1">
+              <ProcessDiagram 
+                process={process} 
+                onStepClick={setSelectedStep}
+                onSubProcessClick={handleSubProcessClick}
+                onParentClick={handleParentClick}
+                focusNodeId={focusNodeId}
+                getSubProcess={getSubProcess}
               />
             </div>
-          )}
+
+            {/* Step details sidebar (overlays on diagram area) */}
+            {selectedStep && (
+              <div className="absolute right-0 top-0 bottom-0 w-80 border-l border-border bg-surface overflow-y-auto shadow-lg z-10">
+                <StepDetails 
+                  step={selectedStep} 
+                  onClose={() => setSelectedStep(null)}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Right Panel with Memory, Logs, and Files */}
+          <RightPanel
+            memory={memory}
+            log={log}
+            memoryLoading={memoryLoading}
+            logLoading={logLoading}
+            processPath={processPath}
+          />
         </div>
 
-        {/* Right Panel with Memory, Logs, and Files */}
-        <RightPanel
-          memory={memory}
-          log={log}
-          memoryLoading={memoryLoading}
-          logLoading={logLoading}
-          processPath={processPath}
-        />
+        {/* Agent Session Panel (bottom) */}
+        {showAgentPanel && (
+          <div 
+            className="flex flex-col border-t border-border" 
+            style={{ height: agentPanelHeight, minHeight: AGENT_PANEL_MIN_HEIGHT }}
+          >
+            {/* Resize handle */}
+            <div 
+              className="h-1 cursor-ns-resize hover:bg-accent/50 transition-colors flex-shrink-0"
+              onMouseDown={handleAgentResizeStart}
+            />
+            <AgentSessionPanel
+              process={process}
+              processPath={processPath}
+              projectPath={projectPath}
+              onClose={() => setShowAgentPanel(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Alert for process not found */}
@@ -280,6 +407,15 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
         <Alert 
           message={alertMessage} 
           onClose={() => setAlertMessage(null)} 
+        />
+      )}
+
+      {/* Lazy Prompts Modal (opened via Shift+P) */}
+      {showLazyPromptModal && (
+        <LazyPromptModal
+          process={process}
+          processPath={processPath!}
+          onClose={() => setShowLazyPromptModal(false)}
         />
       )}
     </div>

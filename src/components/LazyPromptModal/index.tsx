@@ -6,7 +6,7 @@ import {
   LAZY_PROMPT_CONFIGS, 
   generateLazyPrompt, 
   executeLazyPrompt,
-  getActiveStepOptions,
+  getInteractionOptions,
   getActiveStep,
   generateSelectOptionPrompt
 } from '../../services/lazyPromptsService'
@@ -33,7 +33,7 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
   const listRef = useRef<HTMLDivElement>(null)
 
   // Get interaction options from active step
-  const interactionOptions = useMemo(() => getActiveStepOptions(process), [process])
+  const interactionOptions = useMemo(() => getInteractionOptions(process), [process])
   const activeStep = useMemo(() => getActiveStep(process), [process])
   const hasOptions = interactionOptions && interactionOptions.length > 0
 
@@ -127,13 +127,15 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
   const handleItemSelect = useCallback(async (item: ListItem | undefined) => {
     if (!item) return
 
+    const isAgentAction = settings.lazyPrompts.defaultAction === 'agent-apply'
+
     switch (item.type) {
       case 'select-option-header':
         // Toggle expansion
         setOptionsExpanded(prev => !prev)
         break
       case 'interaction-option':
-        // Copy option to clipboard
+        // Execute action for option
         const optionResult = await executeLazyPrompt(
           'select-option',
           settings.lazyPrompts.defaultAction,
@@ -142,10 +144,15 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
           item.option
         )
         if (optionResult.success) {
-          showToast(`"${item.option.label}" copied to clipboard`, 'success')
+          const message = isAgentAction 
+            ? `"${item.option.label}" sent to agent`
+            : `"${item.option.label}" copied to clipboard`
+          showToast(message, 'success')
           onClose()
+        } else if (optionResult.noSession) {
+          showToast('No active agent session. Start an agent first.', 'info')
         } else {
-          showToast('Failed to copy option', 'error')
+          showToast(optionResult.message || 'Failed to execute action', 'error')
         }
         break
       case 'prompt':
@@ -156,10 +163,15 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
           processPath
         )
         if (result.success) {
-          showToast('Prompt copied to clipboard', 'success')
+          const message = isAgentAction 
+            ? 'Prompt sent to agent!'
+            : 'Prompt copied to clipboard!'
+          showToast(message, 'success')
           onClose()
+        } else if (result.noSession) {
+          showToast('No active agent session. Start an agent first.', 'info')
         } else {
-          showToast('Failed to copy prompt', 'error')
+          showToast(result.message || 'Failed to execute action', 'error')
         }
         break
     }
@@ -257,7 +269,6 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
 
             if (item.type === 'interaction-option') {
               const isDefault = item.option.isDefault
-              const isAlreadySelected = activeStep?.selectedOptions?.includes(item.option.id)
               
               return (
                 <button
@@ -270,7 +281,6 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
                   className={`
                     w-full pl-12 pr-4 py-2.5 flex items-center gap-3 text-left transition-colors
                     ${isSelected ? 'bg-accent/10' : 'hover:bg-surface-elevated'}
-                    ${isAlreadySelected ? 'opacity-60' : ''}
                   `}
                 >
                   {/* Option icon */}
@@ -278,16 +288,10 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
                     p-1.5 rounded-lg transition-colors
                     ${isSelected ? 'bg-accent/20 text-accent' : 'bg-surface-elevated text-text-muted'}
                   `}>
-                    {isAlreadySelected ? (
-                      <svg className="w-3.5 h-3.5 text-status-completed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                          d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                      </svg>
-                    )}
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+                    </svg>
                   </div>
 
                   {/* Content */}
@@ -307,11 +311,6 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
                     {isDefault && (
                       <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-status-active/20 text-status-active">
                         default
-                      </span>
-                    )}
-                    {isAlreadySelected && (
-                      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-status-completed/20 text-status-completed">
-                        selected
                       </span>
                     )}
                   </div>
@@ -417,7 +416,7 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
             </span>
           </div>
           <span className="text-text-muted">
-            Action: {settings.lazyPrompts.defaultAction === 'clipboard' ? 'Copy to Clipboard' : 'Apply with Agent'}
+            Action: {settings.lazyPrompts.defaultAction === 'clipboard' ? 'Copy to Clipboard' : 'Send to Agent'}
           </span>
         </div>
       </div>

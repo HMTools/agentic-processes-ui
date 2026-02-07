@@ -4,10 +4,12 @@ interface SidebarProps {
   onSelectProject: () => void
   processCount: number
   activeCount: number
-  currentView: 'dashboard' | 'settings' | 'templates'
+  runningSessionCount?: number
+  currentView: 'dashboard' | 'settings' | 'templates' | 'agent-sessions'
   onNavigateToSettings: () => void
   onNavigateToDashboard: () => void
   onNavigateToTemplates: () => void
+  onNavigateToAgentSessions: () => void
 }
 
 export function Sidebar({ 
@@ -16,10 +18,12 @@ export function Sidebar({
   onSelectProject, 
   processCount,
   activeCount,
+  runningSessionCount = 0,
   currentView,
   onNavigateToSettings,
   onNavigateToDashboard,
-  onNavigateToTemplates
+  onNavigateToTemplates,
+  onNavigateToAgentSessions
 }: SidebarProps) {
   return (
     <div className="w-16 bg-surface border-r border-border flex flex-col items-center py-4">
@@ -55,6 +59,18 @@ export function Sidebar({
           label="Templates"
           active={currentView === 'templates'}
           onClick={onNavigateToTemplates}
+        />
+        <NavButton 
+          icon={
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          }
+          label="Agent Sessions"
+          active={currentView === 'agent-sessions'}
+          onClick={onNavigateToAgentSessions}
+          badge={runningSessionCount > 0 ? runningSessionCount : undefined}
         />
       </div>
 

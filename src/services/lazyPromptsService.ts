@@ -1,4 +1,5 @@
 import type { ProcessInstance, LazyPromptType, LazyPromptConfig, InteractionOption } from '../types'
+import * as agentService from './agentService'
 
 // Available lazy prompt configurations
 export const LAZY_PROMPT_CONFIGS: Record<LazyPromptType, LazyPromptConfig> = {
@@ -7,7 +8,8 @@ export const LAZY_PROMPT_CONFIGS: Record<LazyPromptType, LazyPromptConfig> = {
     label: 'Select Option',
     description: 'Choose from available options for the current step',
     availableActions: [
-      { type: 'clipboard', label: 'Copy to Clipboard' }
+      { type: 'clipboard', label: 'Copy to Clipboard' },
+      { type: 'agent-apply', label: 'Send to Agent' }
     ]
   },
   'continue-process': {
@@ -16,17 +18,25 @@ export const LAZY_PROMPT_CONFIGS: Record<LazyPromptType, LazyPromptConfig> = {
     description: 'Generate a prompt to continue working on this process',
     availableActions: [
       { type: 'clipboard', label: 'Copy to Clipboard' },
-      // Future: { type: 'agent-apply', label: 'Apply with Agent' }
+      { type: 'agent-apply', label: 'Send to Agent' }
+    ]
+  },
+  'new-process': {
+    type: 'new-process',
+    label: 'New Process',
+    description: 'Create a new process from a template via the agent',
+    availableActions: [
+      { type: 'clipboard', label: 'Copy to Clipboard' },
+      { type: 'agent-apply', label: 'Send to Agent' }
     ]
   }
 }
 
 /**
- * Get the interaction options from the active step of a process
+ * Get the interaction options from the process-level pending interaction
  */
-export function getActiveStepOptions(process: ProcessInstance): InteractionOption[] | null {
-  const activeStep = process.steps.find(s => s.id === process.currentState.activeStepId)
-  return activeStep?.interactionOptions ?? null
+export function getInteractionOptions(process: ProcessInstance): InteractionOption[] | null {
+  return process.pendingInteraction?.options ?? null
 }
 
 /**
@@ -80,6 +90,8 @@ export function generateLazyPrompt(
       }
       // Return placeholder if no option specified
       return 'Select an option...'
+    case 'new-process':
+      return '/process-new'
     default:
       throw new Error(`Unknown lazy prompt type: ${type}`)
   }
@@ -99,6 +111,13 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 /**
+ * Check if there's an active agent session for a process
+ */
+export async function hasActiveAgentSession(processPath: string): Promise<boolean> {
+  return agentService.hasActiveSession(processPath)
+}
+
+/**
  * Execute a lazy prompt action
  */
 export async function executeLazyPrompt(
@@ -107,7 +126,7 @@ export async function executeLazyPrompt(
   process: ProcessInstance,
   processPath: string,
   option?: InteractionOption
-): Promise<{ success: boolean; message: string }> {
+): Promise<{ success: boolean; message: string; noSession?: boolean }> {
   const prompt = generateLazyPrompt(type, process, processPath, option)
 
   switch (action) {
@@ -118,10 +137,27 @@ export async function executeLazyPrompt(
         message: success ? 'Copied to clipboard!' : 'Failed to copy to clipboard'
       }
     case 'agent-apply':
-      // Future implementation
+      // Send prompt to active agent session
+      const result = await agentService.sendLazyPromptToProcess(processPath, prompt)
+      
+      if (result.noSession) {
+        return {
+          success: false,
+          message: 'No active agent session. Start an agent session first.',
+          noSession: true
+        }
+      }
+      
+      if (!result.success) {
+        return {
+          success: false,
+          message: result.error || 'Failed to send prompt to agent'
+        }
+      }
+      
       return {
-        success: false,
-        message: 'Agent apply is not yet implemented'
+        success: true,
+        message: 'Prompt sent to agent!'
       }
     default:
       return {

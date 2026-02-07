@@ -18,6 +18,7 @@ interface DashboardProps {
   onSelectProcess: (path: string) => void
   getProcess: (path: string) => ProcessInstance | undefined
   processErrors?: ProcessError[]
+  onNewProcess?: () => void
 }
 
 export function Dashboard({
@@ -28,9 +29,10 @@ export function Dashboard({
   selectedProcess,
   onSelectProcess,
   getProcess,
-  processErrors = []
+  processErrors = [],
+  onNewProcess
 }: DashboardProps) {
-  const [filter, setFilter] = useState<FilterStatus>('all')
+  const [filter, setFilter] = useState<FilterStatus>('active')
   const [showErrors, setShowErrors] = useState(true)
 
   const filteredProcesses = filter === 'all' 
@@ -52,7 +54,20 @@ export function Dashboard({
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <div className="p-4 border-b border-border">
-        <h2 className="text-lg font-semibold text-text-primary mb-3">Processes</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-text-primary">Processes</h2>
+          {onNewProcess && (
+            <button
+              onClick={onNewProcess}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-accent text-background hover:bg-accent/90 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              New Process
+            </button>
+          )}
+        </div>
         
         {/* Filter tabs */}
         <div className="flex gap-1">

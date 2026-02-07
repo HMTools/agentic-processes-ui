@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react'
-import type { AppSettings, LazyPromptsSettings } from '../types'
+import type { AppSettings, LazyPromptsSettings, AgentSettings } from '../types'
 
 const SETTINGS_STORAGE_KEY = 'agentic-processes-settings'
 
@@ -7,6 +7,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   lazyPrompts: {
     enabled: true,
     defaultAction: 'clipboard'
+  },
+  agent: {
+    defaultAgentType: 'cursor',
+    autoAttach: false,
+    terminalFontSize: 14
   }
 }
 
@@ -23,6 +28,10 @@ function loadSettings(): AppSettings {
         lazyPrompts: {
           ...DEFAULT_SETTINGS.lazyPrompts,
           ...parsed.lazyPrompts
+        },
+        agent: {
+          ...DEFAULT_SETTINGS.agent,
+          ...parsed.agent
         }
       }
     }
@@ -45,6 +54,7 @@ function saveSettings(settings: AppSettings): void {
 interface SettingsContextValue {
   settings: AppSettings
   updateLazyPromptsSettings: (updates: Partial<LazyPromptsSettings>) => void
+  updateAgentSettings: (updates: Partial<AgentSettings>) => void
   resetSettings: () => void
 }
 
@@ -78,6 +88,16 @@ export function useSettingsState() {
     }))
   }, [])
 
+  const updateAgentSettings = useCallback((updates: Partial<AgentSettings>) => {
+    setSettings(prev => ({
+      ...prev,
+      agent: {
+        ...prev.agent,
+        ...updates
+      }
+    }))
+  }, [])
+
   const resetSettings = useCallback(() => {
     setSettings(DEFAULT_SETTINGS)
   }, [])
@@ -85,6 +105,7 @@ export function useSettingsState() {
   return {
     settings,
     updateLazyPromptsSettings,
+    updateAgentSettings,
     resetSettings
   }
 }

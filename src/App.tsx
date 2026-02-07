@@ -1,17 +1,22 @@
 import { useState, useCallback } from 'react'
 import { useProcesses } from './hooks/useProcesses'
 import { useSettingsState, SettingsContext } from './hooks/useSettings'
+import { useTemplates } from './hooks/useTemplates'
+import { useAgentSessions } from './hooks/useAgentSessions'
 import { Dashboard } from './components/Dashboard'
 import { DiagramView } from './components/DiagramView'
 import { Settings } from './components/Settings'
 import { Templates } from './components/Templates'
+import { AgentSessions } from './components/AgentSessions'
+import { NewProcessModal } from './components/NewProcessModal'
 import { Sidebar } from './components/Layout/Sidebar'
 import { WelcomeScreen } from './components/Layout/WelcomeScreen'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ErrorDisplay } from './components/ErrorDisplay'
+import type { ProcessTemplate } from './types'
 
-type AppView = 'dashboard' | 'settings' | 'templates'
+type AppView = 'dashboard' | 'settings' | 'templates' | 'agent-sessions'
 
 function App() {
   const {
@@ -30,13 +35,27 @@ function App() {
 
   const settingsState = useSettingsState()
 
+  // Lift templates to App level so Dashboard and Templates page can both access them
+  const { processTemplates } = useTemplates(projectPath)
+
+  // Track running agent sessions for the sidebar badge
+  const { sessions: allAgentSessions } = useAgentSessions()
+  const runningSessionCount = allAgentSessions.filter(
+    s => s.status === 'running' || s.status === 'starting'
+  ).length
+
   const [currentView, setCurrentView] = useState<AppView>('dashboard')
   const [selectedProcessPath, setSelectedProcessPath] = useState<string | null>(null)
   const [navigatedFromPath, setNavigatedFromPath] = useState<string | null>(null)
   const selectedProcess = selectedProcessPath ? getProcess(selectedProcessPath) : null
 
+  // New Process Modal state
+  const [showNewProcessModal, setShowNewProcessModal] = useState(false)
+  const [preSelectedTemplate, setPreSelectedTemplate] = useState<ProcessTemplate | null>(null)
+
   // Handle navigation between processes, tracking the source
   const handleNavigateToProcess = useCallback((targetPath: string) => {
+    setCurrentView('dashboard')
     setNavigatedFromPath(selectedProcessPath) // Remember where we came from
     setSelectedProcessPath(targetPath)
   }, [selectedProcessPath])
@@ -64,6 +83,28 @@ function App() {
     setNavigatedFromPath(null)
   }, [])
 
+  const handleNavigateToAgentSessions = useCallback(() => {
+    setCurrentView('agent-sessions')
+    setSelectedProcessPath(null)
+    setNavigatedFromPath(null)
+  }, [])
+
+  // New Process Modal handlers
+  const handleOpenNewProcess = useCallback(() => {
+    setPreSelectedTemplate(null)
+    setShowNewProcessModal(true)
+  }, [])
+
+  const handleUseTemplate = useCallback((template: ProcessTemplate) => {
+    setPreSelectedTemplate(template)
+    setShowNewProcessModal(true)
+  }, [])
+
+  const handleCloseNewProcessModal = useCallback(() => {
+    setShowNewProcessModal(false)
+    setPreSelectedTemplate(null)
+  }, [])
+
   return (
     <ToastProvider>
       <SettingsContext.Provider value={settingsState}>
@@ -75,10 +116,12 @@ function App() {
           onSelectProject={selectProject}
           processCount={processes.length}
           activeCount={activeProcesses.length}
+          runningSessionCount={runningSessionCount}
           currentView={currentView}
           onNavigateToSettings={handleNavigateToSettings}
           onNavigateToDashboard={handleNavigateToDashboard}
           onNavigateToTemplates={handleNavigateToTemplates}
+          onNavigateToAgentSessions={handleNavigateToAgentSessions}
         />
 
         {/* Main content */}
@@ -87,7 +130,16 @@ function App() {
             {currentView === 'settings' ? (
               <Settings onBack={handleNavigateToDashboard} />
             ) : currentView === 'templates' ? (
-              <Templates projectPath={projectPath} onBack={handleNavigateToDashboard} />
+              <Templates
+                projectPath={projectPath}
+                onBack={handleNavigateToDashboard}
+                onUseTemplate={handleUseTemplate}
+              />
+            ) : currentView === 'agent-sessions' ? (
+              <AgentSessions
+                onBack={handleNavigateToDashboard}
+                onNavigateToProcess={handleNavigateToProcess}
+              />
             ) : !projectPath ? (
               <WelcomeScreen onSelectProject={selectProject} />
             ) : error ? (
@@ -116,10 +168,23 @@ function App() {
                 onSelectProcess={setSelectedProcessPath}
                 getProcess={getProcess}
                 processErrors={processErrors}
+                onNewProcess={projectPath ? handleOpenNewProcess : undefined}
               />
             )}
           </ErrorBoundary>
         </div>
+
+        {/* New Process Modal */}
+        {projectPath && (
+          <NewProcessModal
+            isOpen={showNewProcessModal}
+            onClose={handleCloseNewProcessModal}
+            templates={processTemplates}
+            projectPath={projectPath}
+            agentSettings={settingsState.settings.agent}
+            preSelectedTemplate={preSelectedTemplate}
+          />
+        )}
         </div>
       </SettingsContext.Provider>
     </ToastProvider>

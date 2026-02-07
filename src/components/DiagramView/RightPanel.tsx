@@ -169,7 +169,7 @@ export function RightPanel({ memory, log, memoryLoading, logLoading, processPath
       {!isCollapsed && (
         <div className="flex-1 overflow-hidden">
           {activeTab === 'memory' && (
-            <MemoryView memory={memory} loading={memoryLoading} />
+            <MemoryView memory={memory} loading={memoryLoading} processPath={processPath} />
           )}
           {activeTab === 'logs' && (
             <LogsView log={log} loading={logLoading} />
