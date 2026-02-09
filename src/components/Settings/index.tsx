@@ -4,6 +4,16 @@ import type { AgentType } from '../../types'
 
 interface SettingsProps {
   onBack: () => void
+  /** Path to the framework folder */
+  frameworkPath?: string | null
+  /** Paths to project folders */
+  projectPaths?: string[]
+  /** Callback to add a folder (opens folder picker) */
+  onSelectFolder?: () => void
+  /** Callback to remove a project folder */
+  onRemoveProject?: (path: string) => Promise<void>
+  /** Callback to change framework folder */
+  onChangeFramework?: () => void
 }
 
 // Available agent types for the dropdown
@@ -13,7 +23,14 @@ const AGENT_TYPES: { value: AgentType; label: string; available: boolean }[] = [
   { value: 'claude-code', label: 'Claude Code', available: false }
 ]
 
-export function Settings({ onBack }: SettingsProps) {
+export function Settings({ 
+  onBack, 
+  frameworkPath, 
+  projectPaths = [], 
+  onSelectFolder,
+  onRemoveProject,
+  onChangeFramework 
+}: SettingsProps) {
   const { settings, updateLazyPromptsSettings, updateAgentSettings, resetSettings } = useSettings()
   const [availableAgents, setAvailableAgents] = useState(AGENT_TYPES)
   
@@ -132,6 +149,116 @@ export function Settings({ onBack }: SettingsProps) {
               </div>
             </div>
           </section>
+
+          {/* Workspace Section */}
+          {(onSelectFolder || onRemoveProject) && (
+            <section className="bg-surface rounded-lg border border-border overflow-hidden">
+              <div className="p-4 border-b border-border bg-surface-elevated">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-accent/20">
+                    <svg className="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-text-primary">Workspace</h2>
+                    <p className="text-xs text-text-muted">Manage framework and project folders</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="p-4 space-y-4">
+                {/* Framework Path */}
+                <div>
+                  <label className="text-sm font-medium text-text-primary block mb-1">
+                    Framework Folder
+                  </label>
+                  <p className="text-xs text-text-muted mb-2">
+                    Contains <code className="px-1 py-0.5 bg-background rounded text-accent font-mono text-[10px]">.processes/</code> with templates and step definitions
+                  </p>
+                  {frameworkPath ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-secondary font-mono truncate">
+                        {frameworkPath}
+                      </div>
+                      {onChangeFramework && (
+                        <button
+                          onClick={onChangeFramework}
+                          className="px-3 py-2 text-sm text-text-secondary hover:text-text-primary bg-surface-elevated border border-border rounded-lg hover:border-accent/50 transition-colors"
+                        >
+                          Change
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-muted italic">
+                        No framework folder configured
+                      </div>
+                      {onSelectFolder && (
+                        <button
+                          onClick={onSelectFolder}
+                          className="px-3 py-2 text-sm bg-accent text-background rounded-lg hover:bg-accent/90 transition-colors"
+                        >
+                          Add
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Project Paths */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-sm font-medium text-text-primary">
+                      Project Folders ({projectPaths.length})
+                    </label>
+                    {onSelectFolder && (
+                      <button
+                        onClick={onSelectFolder}
+                        className="text-xs text-accent hover:text-accent/80 transition-colors flex items-center gap-1"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                        Add Project
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-text-muted mb-2">
+                    Contains <code className="px-1 py-0.5 bg-background rounded text-accent font-mono text-[10px]">.user-processes/</code> with your processes
+                  </p>
+                  {projectPaths.length > 0 ? (
+                    <div className="space-y-2">
+                      {projectPaths.map((path) => (
+                        <div key={path} className="flex items-center gap-2">
+                          <div className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-secondary font-mono truncate">
+                            {path}
+                          </div>
+                          {onRemoveProject && (
+                            <button
+                              onClick={() => onRemoveProject(path)}
+                              className="p-2 text-text-muted hover:text-status-failed transition-colors"
+                              title="Remove project"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-4 text-sm bg-background border border-border rounded-lg text-center text-text-muted">
+                      No project folders added yet
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Agent Settings Section */}
           <section className="bg-surface rounded-lg border border-border overflow-hidden">

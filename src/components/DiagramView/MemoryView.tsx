@@ -298,12 +298,26 @@ function StepMemoryCard({ stepKey, step, onFileClick }: { stepKey: string; step:
               Decisions Made
             </label>
             <ul className="space-y-1">
-              {step.decisionsMade.map((decision, i) => (
-                <li key={i} className="flex gap-2 text-xs">
-                  <span className="text-accent shrink-0">→</span>
-                  <span className="text-text-secondary">{decision}</span>
-                </li>
-              ))}
+              {step.decisionsMade.map((decision, i) => {
+                // Handle both string and object formats ({decision, rationale})
+                const decisionText = typeof decision === 'string'
+                  ? decision
+                  : (decision as any)?.decision ?? JSON.stringify(decision)
+                const rationale = typeof decision === 'object' && decision !== null
+                  ? (decision as any).rationale
+                  : undefined
+                return (
+                  <li key={i} className="flex gap-2 text-xs">
+                    <span className="text-accent shrink-0">→</span>
+                    <span className="text-text-secondary">
+                      {decisionText}
+                      {rationale && (
+                        <span className="text-text-muted ml-1">— {rationale}</span>
+                      )}
+                    </span>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         )}

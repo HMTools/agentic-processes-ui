@@ -28,6 +28,19 @@ function isStepTimestamp(ts: string | StepTimestamp): ts is StepTimestamp {
   return typeof ts === 'object' && ts !== null && 'startedAt' in ts
 }
 
+// Extract start/completed timestamps from various timestamp formats
+function extractTimestamps(ts: unknown): { started: string | null; completed: string | null } {
+  if (!ts) return { started: null, completed: null }
+  if (typeof ts === 'string') return { started: ts, completed: null }
+  if (typeof ts === 'object' && ts !== null) {
+    const obj = ts as Record<string, unknown>
+    const started = (obj.startedAt ?? obj.started ?? null) as string | null
+    const completed = (obj.completedAt ?? obj.completed ?? null) as string | null
+    return { started, completed }
+  }
+  return { started: String(ts), completed: null }
+}
+
 export function LogsView({ log, loading }: LogsViewProps) {
   if (loading) {
     return (
@@ -184,9 +197,8 @@ function StepLogCard({ stepKey, step }: { stepKey: string; step: LogStepEntry })
     return null
   }
 
-  // Handle both simple timestamp string and StepTimestamp object
-  const startedAt = isStepTimestamp(step.timestamp) ? step.timestamp.startedAt : step.timestamp
-  const completedAt = isStepTimestamp(step.timestamp) ? step.timestamp.completedAt : null
+  // Handle various timestamp formats: string, {startedAt, completedAt}, {started, completed}
+  const { started: startedAt, completed: completedAt } = extractTimestamps(step.timestamp)
 
   return (
     <div className="bg-surface rounded-lg border border-border overflow-hidden">

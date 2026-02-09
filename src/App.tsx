@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useProcesses } from './hooks/useProcesses'
 import { useSettingsState, SettingsContext } from './hooks/useSettings'
 import { useTemplates } from './hooks/useTemplates'
@@ -19,24 +19,37 @@ import type { ProcessTemplate } from './types'
 type AppView = 'dashboard' | 'settings' | 'templates' | 'agent-sessions'
 
 function App() {
+  const settingsState = useSettingsState()
+
+  // Multi-workspace state from useProcesses
   const {
-    projectPath,
+    frameworkPath,
+    projectPaths,
     isWatching,
     processes,
     activeProcesses,
     completedProcesses,
     failedProcesses,
-    selectProject,
+    selectFolder,
+    addFolder,
+    removeProject,
+    setFrameworkPath,
     getProcess,
     error,
     processErrors,
     retryWatching
-  } = useProcesses()
+  } = useProcesses({
+    initialWorkspace: settingsState.settings.workspace,
+    onWorkspaceChange: settingsState.updateWorkspaceSettings
+  })
 
-  const settingsState = useSettingsState()
+  // Derived state: has at least one project folder configured
+  // We require at least one project folder to show Dashboard (since that's where processes live)
+  const hasProjectFolders = projectPaths.length > 0
 
   // Lift templates to App level so Dashboard and Templates page can both access them
-  const { processTemplates } = useTemplates(projectPath)
+  // Templates now load from framework + all project folders
+  const { processTemplates } = useTemplates(frameworkPath, projectPaths)
 
   // Track running agent sessions for the sidebar badge
   const { sessions: allAgentSessions } = useAgentSessions()
@@ -105,15 +118,37 @@ function App() {
     setPreSelectedTemplate(null)
   }, [])
 
+  // Global Ctrl+Shift+N keyboard shortcut to open New Process modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input or textarea
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return
+      }
+
+      // Only open modal if at least one project is loaded
+      if (e.ctrlKey && e.shiftKey && e.key === 'N' && projectPaths.length > 0) {
+        e.preventDefault()
+        handleOpenNewProcess()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleOpenNewProcess, projectPaths.length])
+
   return (
     <ToastProvider>
       <SettingsContext.Provider value={settingsState}>
         <div className="h-screen flex bg-background text-text-primary">
         {/* Sidebar */}
         <Sidebar
-          projectPath={projectPath}
+          frameworkPath={frameworkPath}
+          projectPaths={projectPaths}
           isWatching={isWatching}
-          onSelectProject={selectProject}
+          onAddFolder={addFolder}
+          onSelectFolder={selectFolder}
           processCount={processes.length}
           activeCount={activeProcesses.length}
           runningSessionCount={runningSessionCount}
@@ -128,10 +163,18 @@ function App() {
         <div className="flex-1 flex overflow-hidden">
           <ErrorBoundary>
             {currentView === 'settings' ? (
-              <Settings onBack={handleNavigateToDashboard} />
+              <Settings 
+                onBack={handleNavigateToDashboard}
+                frameworkPath={frameworkPath}
+                projectPaths={projectPaths}
+                onSelectFolder={selectFolder}
+                onRemoveProject={removeProject}
+                onChangeFramework={selectFolder}
+              />
             ) : currentView === 'templates' ? (
               <Templates
-                projectPath={projectPath}
+                frameworkPath={frameworkPath}
+                projectPaths={projectPaths}
                 onBack={handleNavigateToDashboard}
                 onUseTemplate={handleUseTemplate}
               />
@@ -139,15 +182,22 @@ function App() {
               <AgentSessions
                 onBack={handleNavigateToDashboard}
                 onNavigateToProcess={handleNavigateToProcess}
+                getProcess={getProcess}
               />
-            ) : !projectPath ? (
-              <WelcomeScreen onSelectProject={selectProject} />
+            ) : !hasProjectFolders ? (
+              <WelcomeScreen 
+                frameworkPath={frameworkPath}
+                projectPaths={projectPaths}
+                onAddFolder={addFolder}
+                onSelectFolder={selectFolder}
+              />
             ) : error ? (
               <ErrorDisplay
                 error={error}
-                projectPath={projectPath}
+                projectPaths={projectPaths}
                 onRetry={retryWatching}
-                onSelectDifferent={selectProject}
+                onAddFolder={addFolder}
+                onSelectFolder={selectFolder}
               />
             ) : selectedProcess ? (
               <DiagramView
@@ -168,19 +218,19 @@ function App() {
                 onSelectProcess={setSelectedProcessPath}
                 getProcess={getProcess}
                 processErrors={processErrors}
-                onNewProcess={projectPath ? handleOpenNewProcess : undefined}
+                onNewProcess={projectPaths.length > 0 ? handleOpenNewProcess : undefined}
               />
             )}
           </ErrorBoundary>
         </div>
 
         {/* New Process Modal */}
-        {projectPath && (
+        {projectPaths.length > 0 && (
           <NewProcessModal
             isOpen={showNewProcessModal}
             onClose={handleCloseNewProcessModal}
             templates={processTemplates}
-            projectPath={projectPath}
+            projectPaths={projectPaths}
             agentSettings={settingsState.settings.agent}
             preSelectedTemplate={preSelectedTemplate}
           />

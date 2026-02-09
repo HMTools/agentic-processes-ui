@@ -1,7 +1,14 @@
 interface SidebarProps {
-  projectPath: string | null
+  /** Path to the framework folder (agentic-processes) */
+  frameworkPath: string | null
+  /** Paths to project folders being watched */
+  projectPaths: string[]
+  /** Whether at least one watcher is active */
   isWatching: boolean
-  onSelectProject: () => void
+  /** Add a folder (auto-detects type) */
+  onAddFolder: (path: string) => Promise<void>
+  /** Opens folder picker dialog */
+  onSelectFolder: () => void
   processCount: number
   activeCount: number
   runningSessionCount?: number
@@ -13,9 +20,11 @@ interface SidebarProps {
 }
 
 export function Sidebar({ 
-  projectPath, 
+  frameworkPath,
+  projectPaths,
   isWatching, 
-  onSelectProject, 
+  onAddFolder,
+  onSelectFolder, 
   processCount,
   activeCount,
   runningSessionCount = 0,
@@ -25,6 +34,31 @@ export function Sidebar({
   onNavigateToTemplates,
   onNavigateToAgentSessions
 }: SidebarProps) {
+  const hasWorkspace = Boolean(frameworkPath) || projectPaths.length > 0
+
+  // Compute workspace status
+  const workspaceStatus = (() => {
+    if (!hasWorkspace) return 'none'
+    if (isWatching) return 'watching'
+    return 'configured'
+  })()
+
+  // Build tooltip text
+  const workspaceTooltip = (() => {
+    const lines: string[] = []
+    if (frameworkPath) {
+      lines.push(`Framework: ${frameworkPath}`)
+    }
+    if (projectPaths.length > 0) {
+      lines.push(`Projects (${projectPaths.length}):`)
+      projectPaths.forEach(p => lines.push(`  • ${p}`))
+    }
+    if (lines.length === 0) {
+      lines.push('Add a folder to get started')
+    }
+    return lines.join('\n')
+  })()
+
   return (
     <div className="w-16 bg-surface border-r border-border flex flex-col items-center py-4">
       {/* Logo */}
@@ -90,22 +124,22 @@ export function Sidebar({
           onClick={onNavigateToSettings}
         />
         
-        {/* Project folder selector */}
+        {/* Workspace folder button */}
         <div className="relative">
           <button
-            onClick={onSelectProject}
+            onClick={onSelectFolder}
             className="p-2 rounded-lg hover:bg-surface-elevated transition-colors group"
-            title={projectPath || 'Select project folder'}
+            title={workspaceTooltip}
           >
             <svg className="w-5 h-5 text-text-secondary group-hover:text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
                 d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>
           </button>
-          {/* Connection status dot */}
+          {/* Workspace status dot */}
           <span className={`
             absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface
-            ${isWatching ? 'bg-status-completed' : projectPath ? 'bg-status-paused' : 'bg-status-pending'}
+            ${workspaceStatus === 'watching' ? 'bg-status-completed' : workspaceStatus === 'configured' ? 'bg-status-paused' : 'bg-status-pending'}
           `} />
         </div>
       </div>

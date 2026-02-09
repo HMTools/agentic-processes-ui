@@ -1,15 +1,16 @@
 import { useState, useCallback, useMemo } from 'react'
 import { useAgentSessions } from '../../hooks/useAgentSessions'
-import type { AgentSession, AgentSessionStatus } from '../../types'
+import type { AgentSession, AgentSessionStatus, ProcessInstance } from '../../types'
 
 type FilterStatus = 'all' | 'running' | 'stopped'
 
 interface AgentSessionsProps {
   onBack: () => void
   onNavigateToProcess?: (processPath: string) => void
+  getProcess?: (path: string) => ProcessInstance | undefined
 }
 
-export function AgentSessions({ onBack, onNavigateToProcess }: AgentSessionsProps) {
+export function AgentSessions({ onBack, onNavigateToProcess, getProcess }: AgentSessionsProps) {
   const { sessions, isLoading, error, killSession, refresh } = useAgentSessions()
   const [filter, setFilter] = useState<FilterStatus>('all')
 
@@ -33,14 +34,17 @@ export function AgentSessions({ onBack, onNavigateToProcess }: AgentSessionsProp
   }, [killSession])
 
   const handlePopOut = useCallback((session: AgentSession) => {
-    if (session.attachedProcessPath) {
-      window.electronAPI.openTerminalWindow(
-        session.id,
-        session.attachedProcessPath,
-        `Agent - ${session.attachedProcessPath.split(/[/\\]/).pop() || 'Session'}`
-      )
-    }
-  }, [])
+    const process = session.attachedProcessPath ? getProcess?.(session.attachedProcessPath) : undefined
+    const displayName = process?.name 
+      || (session.attachedProcessPath ? getProcessFolderName(session.attachedProcessPath) : null)
+      || `Agent Session ${session.id.slice(0, 8)}`
+    
+    window.electronAPI.openTerminalWindow(
+      session.id,
+      session.attachedProcessPath || '', // Use empty string if no process
+      `Agent - ${displayName}`
+    )
+  }, [getProcess])
 
   return (
     <div className="h-full w-full flex flex-col bg-background">
@@ -134,6 +138,7 @@ export function AgentSessions({ onBack, onNavigateToProcess }: AgentSessionsProp
                 onKill={handleKill}
                 onPopOut={handlePopOut}
                 onNavigateToProcess={onNavigateToProcess}
+                getProcess={getProcess}
               />
             ))}
           </div>
@@ -152,13 +157,14 @@ interface SessionCardProps {
   onKill: (sessionId: string) => void
   onPopOut: (session: AgentSession) => void
   onNavigateToProcess?: (processPath: string) => void
+  getProcess?: (path: string) => ProcessInstance | undefined
 }
 
-function SessionCard({ session, onKill, onPopOut, onNavigateToProcess }: SessionCardProps) {
+function SessionCard({ session, onKill, onPopOut, onNavigateToProcess, getProcess }: SessionCardProps) {
   const statusConfig = getStatusConfig(session.status)
-  const processName = session.attachedProcessPath
-    ? session.attachedProcessPath.split(/[/\\]/).pop()
-    : null
+  const resolvedProcess = session.attachedProcessPath ? getProcess?.(session.attachedProcessPath) : undefined
+  const processName = resolvedProcess?.name
+    || (session.attachedProcessPath ? getProcessFolderName(session.attachedProcessPath) : null)
 
   return (
     <div className="p-4 bg-surface rounded-lg border border-border">
@@ -217,7 +223,7 @@ function SessionCard({ session, onKill, onPopOut, onNavigateToProcess }: Session
 
         {/* Right side: Actions */}
         <div className="flex items-center gap-1 flex-shrink-0">
-          {session.status === 'running' && session.attachedProcessPath && (
+          {session.status === 'running' && (
             <button
               onClick={() => onPopOut(session)}
               className="p-1.5 rounded-md hover:bg-surface-elevated text-text-muted hover:text-text-primary transition-colors"
@@ -249,6 +255,21 @@ function SessionCard({ session, onKill, onPopOut, onNavigateToProcess }: Session
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * Extract the process folder name from a process path.
+ * e.g. "C:\...\process-set-user-interaction-options-20260205\process.json"
+ *   -> "process-set-user-interaction-options-20260205"
+ */
+function getProcessFolderName(processPath: string): string | null {
+  const segments = processPath.split(/[/\\]/).filter(Boolean)
+  // If the last segment is a file (e.g. process.json), use the parent directory
+  const lastSegment = segments[segments.length - 1]
+  if (lastSegment && lastSegment.includes('.')) {
+    return segments[segments.length - 2] || lastSegment
+  }
+  return lastSegment || null
+}
 
 function getStatusConfig(status: AgentSessionStatus): { label: string; dotClass: string; textClass: string } {
   switch (status) {

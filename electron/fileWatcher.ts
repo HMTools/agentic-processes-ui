@@ -1,6 +1,6 @@
 import { watch, type FSWatcher } from 'chokidar'
-import { readFile, readdir, stat } from 'fs/promises'
-import { join, basename, dirname } from 'path'
+import { readFile, mkdir } from 'fs/promises'
+import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 
 export type FileType = 'process' | 'memory' | 'log'
@@ -13,31 +13,40 @@ export type WatcherCallback = (
 
 export type ErrorCallback = (error: string) => void
 
-let watcher: FSWatcher | null = null
+// Map of watchers keyed by project path (supports N simultaneous watchers)
+const watchers: Map<string, FSWatcher> = new Map()
 
-export function createFileWatcher(
+export async function createFileWatcher(
   projectPath: string, 
   callback: WatcherCallback,
   onError?: ErrorCallback
-): { success: boolean; error?: string } {
-  // Stop existing watcher if any
-  stopFileWatcher()
+): Promise<{ success: boolean; error?: string }> {
+  // Stop existing watcher for THIS path only (not all)
+  stopFileWatcher(projectPath)
 
   const userProcessesPath = join(projectPath, '.user-processes')
   
   console.log('Starting file watcher for:', userProcessesPath)
   console.log('Path exists:', existsSync(userProcessesPath))
 
-  // Check if .user-processes folder exists
+  // Create .user-processes folder structure if it doesn't exist
   if (!existsSync(userProcessesPath)) {
-    const error = `The ".user-processes" folder was not found in "${projectPath}". Please ensure this folder exists with active/completed/failed subdirectories containing process.json files.`
-    console.error(error)
-    if (onError) onError(error)
-    return { success: false, error }
+    console.log('Creating .user-processes directory structure...')
+    try {
+      await mkdir(join(userProcessesPath, 'active'), { recursive: true })
+      await mkdir(join(userProcessesPath, 'completed'), { recursive: true })
+      await mkdir(join(userProcessesPath, 'failed'), { recursive: true })
+      console.log('.user-processes directory structure created successfully')
+    } catch (error) {
+      const errorMsg = `Failed to create .user-processes directory structure: ${error instanceof Error ? error.message : String(error)}`
+      console.error(errorMsg)
+      if (onError) onError(errorMsg)
+      return { success: false, error: errorMsg }
+    }
   }
 
   // Watch the entire .user-processes directory
-  watcher = watch(userProcessesPath, {
+  const watcher = watch(userProcessesPath, {
     persistent: true,
     ignoreInitial: false,
     usePolling: true,
@@ -120,18 +129,35 @@ export function createFileWatcher(
   })
 
   watcher.on('ready', () => {
-    console.log('File watcher ready')
+    console.log(`File watcher ready for: ${projectPath}`)
   })
 
+  watchers.set(projectPath, watcher)
   return { success: true }
 }
 
-export function stopFileWatcher() {
-  if (watcher) {
-    watcher.close()
-    watcher = null
-    console.log('File watcher stopped')
+export function stopFileWatcher(projectPath?: string) {
+  if (projectPath) {
+    // Stop watcher for a specific project
+    const watcher = watchers.get(projectPath)
+    if (watcher) {
+      watcher.close()
+      watchers.delete(projectPath)
+      console.log(`File watcher stopped for: ${projectPath}`)
+    }
+  } else {
+    // Legacy: stop all watchers (backward compat)
+    stopAllFileWatchers()
   }
+}
+
+export function stopAllFileWatchers() {
+  for (const [path, watcher] of watchers) {
+    watcher.close()
+    console.log(`File watcher stopped for: ${path}`)
+  }
+  watchers.clear()
+  console.log('All file watchers stopped')
 }
 
 // Utility to get process status from path

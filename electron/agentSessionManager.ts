@@ -269,6 +269,11 @@ class AgentSessionManager extends EventEmitter {
       pty.onExit(({ exitCode }) => {
         const currentSession = this.sessions.get(sessionId)
         if (currentSession) {
+          // If already stopped (killed intentionally), just clean up the pty ref
+          if (currentSession.status === 'stopped') {
+            currentSession.pty = null
+            return
+          }
           currentSession.status = exitCode === 0 ? 'stopped' : 'error'
           currentSession.pty = null
           this.emit('status', {
@@ -290,6 +295,10 @@ class AgentSessionManager extends EventEmitter {
       // Use \r for shell command (cmd.exe/bash expects \r as Enter)
       pty.write(`${agentCommand}\r`)
 
+      // Wait for agent to be ready before marking as running
+      // The agent needs time to initialize before it can receive prompts
+      await new Promise(resolve => setTimeout(resolve, 2000))
+
       session.status = 'running'
       this.emit('status', {
         sessionId,
@@ -298,8 +307,6 @@ class AgentSessionManager extends EventEmitter {
 
       // If a process path was provided, attach to it after agent starts
       if (processPath) {
-        // Wait for agent to be ready (simple delay - could be improved with output detection)
-        await new Promise(resolve => setTimeout(resolve, 2000))
         await this.attachToProcess(sessionId, processPath)
       }
 

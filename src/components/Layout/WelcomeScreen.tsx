@@ -1,10 +1,30 @@
 import logo from '../../assets/logo.png'
 
 interface WelcomeScreenProps {
-  onSelectProject: () => void
+  /** Path to the framework folder (contains .processes/) */
+  frameworkPath: string | null
+  /** Paths to project folders (contain .user-processes/) */
+  projectPaths: string[]
+  /** Add a folder - auto-detects if it's a framework or project folder */
+  onAddFolder: (path: string) => Promise<void>
+  /** Opens folder picker dialog and returns selected path */
+  onSelectFolder: () => Promise<string | null>
 }
 
-export function WelcomeScreen({ onSelectProject }: WelcomeScreenProps) {
+/** Extract folder name from full path */
+function getFolderName(path: string): string {
+  const parts = path.replace(/\\/g, '/').split('/')
+  return parts[parts.length - 1] || path
+}
+
+export function WelcomeScreen({ frameworkPath, projectPaths, onAddFolder, onSelectFolder }: WelcomeScreenProps) {
+  const hasFramework = Boolean(frameworkPath)
+  const hasProjects = projectPaths.length > 0
+  const isSetupComplete = hasFramework && hasProjects
+  
+  // Determine what step user is on
+  const setupStep = !hasFramework && !hasProjects ? 1 : hasFramework && !hasProjects ? 2 : 2
+
   return (
     <div className="flex-1 flex items-center justify-center bg-background">
       <div className="flex items-center gap-16 px-12 max-w-6xl">
@@ -23,13 +43,114 @@ export function WelcomeScreen({ onSelectProject }: WelcomeScreenProps) {
 
         {/* Right: Content */}
         <div className="flex-1 text-left max-w-md">
-          <p className="text-text-secondary mb-8">
-            Visual process viewer for the Agentic Process System. 
-            Select a project folder containing <code className="px-1.5 py-0.5 bg-surface rounded text-accent font-mono text-sm">.user-processes</code> to get started.
+          <p className="text-text-secondary mb-4">
+            Visual process viewer for the Agentic Process System.
           </p>
 
+          {/* Workspace Setup Progress */}
+          <div className="mb-6 p-4 bg-surface rounded-lg border border-border">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium text-text-primary">Workspace Setup</h4>
+              {(hasFramework || hasProjects) && (
+                <span className="text-xs text-text-muted">
+                  Step {setupStep} of 2
+                </span>
+              )}
+            </div>
+
+            {/* Setup checklist */}
+            <div className="space-y-3">
+              {/* Framework folder item */}
+              <div className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${
+                hasFramework ? 'bg-status-active/10 border border-status-active/20' : 'bg-background/50'
+              }`}>
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                  hasFramework 
+                    ? 'bg-status-active text-background' 
+                    : 'border-2 border-text-muted'
+                }`}>
+                  {hasFramework && (
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-medium ${hasFramework ? 'text-text-primary' : 'text-text-secondary'}`}>
+                      Framework folder
+                    </span>
+                    <code className="px-1 py-0.5 bg-background rounded text-accent font-mono text-[10px]">.processes/</code>
+                  </div>
+                  {hasFramework ? (
+                    <p className="text-xs text-text-muted mt-1 truncate" title={frameworkPath!}>
+                      {getFolderName(frameworkPath!)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-text-muted mt-1">
+                      Contains templates and step definitions
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Project folder item */}
+              <div className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${
+                hasProjects ? 'bg-status-active/10 border border-status-active/20' : 'bg-background/50'
+              }`}>
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                  hasProjects 
+                    ? 'bg-status-active text-background' 
+                    : 'border-2 border-text-muted'
+                }`}>
+                  {hasProjects && (
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-medium ${hasProjects ? 'text-text-primary' : 'text-text-secondary'}`}>
+                      Project folder
+                    </span>
+                    <code className="px-1 py-0.5 bg-background rounded text-accent font-mono text-[10px]">.user-processes/</code>
+                  </div>
+                  {hasProjects ? (
+                    <p className="text-xs text-text-muted mt-1 truncate" title={projectPaths[0]}>
+                      {getFolderName(projectPaths[0])}
+                      {projectPaths.length > 1 && ` +${projectPaths.length - 1} more`}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-text-muted mt-1">
+                      Contains your processes
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Next step guidance */}
+            {!isSetupComplete && (
+              <div className="mt-4 pt-3 border-t border-border">
+                <p className="text-xs text-accent font-medium mb-2">
+                  {!hasFramework && !hasProjects 
+                    ? 'Add a folder to get started'
+                    : hasFramework && !hasProjects 
+                    ? 'Now add a project folder to view processes'
+                    : 'Add a framework folder for templates (optional)'}
+                </p>
+              </div>
+            )}
+          </div>
+
           <button
-            onClick={onSelectProject}
+            onClick={async () => {
+              const path = await onSelectFolder()
+              if (path) {
+                await onAddFolder(path)
+              }
+            }}
             className="
               inline-flex items-center gap-2 px-6 py-3 
               bg-accent hover:bg-accent-hover text-background 
@@ -39,40 +160,53 @@ export function WelcomeScreen({ onSelectProject }: WelcomeScreenProps) {
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
             </svg>
-            Select Project Folder
+            {!hasFramework && !hasProjects 
+              ? 'Add Folder' 
+              : hasFramework && !hasProjects 
+              ? 'Add Project Folder'
+              : 'Add Another Folder'}
           </button>
 
-          <div className="mt-12 pt-8 border-t border-border">
-            <h3 className="text-sm font-medium text-text-primary mb-4">How it works</h3>
-            <div className="grid grid-cols-3 gap-4 text-left">
-              <div className="p-3 rounded-lg bg-surface">
-                <div className="w-8 h-8 rounded-lg bg-status-active/20 flex items-center justify-center mb-2">
-                  <span className="text-status-active font-mono font-bold">1</span>
+          {(hasFramework || hasProjects) && (
+            <p className="text-xs text-text-muted mt-3">
+              You can manage folders later in Settings
+            </p>
+          )}
+
+          {/* How it works - only show when nothing configured yet */}
+          {!hasFramework && !hasProjects && (
+            <div className="mt-12 pt-8 border-t border-border">
+              <h3 className="text-sm font-medium text-text-primary mb-4">How it works</h3>
+              <div className="grid grid-cols-3 gap-4 text-left">
+                <div className="p-3 rounded-lg bg-surface">
+                  <div className="w-8 h-8 rounded-lg bg-status-active/20 flex items-center justify-center mb-2">
+                    <span className="text-status-active font-mono font-bold">1</span>
+                  </div>
+                  <p className="text-xs text-text-secondary">
+                    Add your framework and project folders
+                  </p>
                 </div>
-                <p className="text-xs text-text-secondary">
-                  Select a project with <code className="text-accent">.user-processes</code> folder
-                </p>
-              </div>
-              <div className="p-3 rounded-lg bg-surface">
-                <div className="w-8 h-8 rounded-lg bg-status-active/20 flex items-center justify-center mb-2">
-                  <span className="text-status-active font-mono font-bold">2</span>
+                <div className="p-3 rounded-lg bg-surface">
+                  <div className="w-8 h-8 rounded-lg bg-status-active/20 flex items-center justify-center mb-2">
+                    <span className="text-status-active font-mono font-bold">2</span>
+                  </div>
+                  <p className="text-xs text-text-secondary">
+                    View all processes across all projects
+                  </p>
                 </div>
-                <p className="text-xs text-text-secondary">
-                  View all processes and their current status
-                </p>
-              </div>
-              <div className="p-3 rounded-lg bg-surface">
-                <div className="w-8 h-8 rounded-lg bg-status-active/20 flex items-center justify-center mb-2">
-                  <span className="text-status-active font-mono font-bold">3</span>
+                <div className="p-3 rounded-lg bg-surface">
+                  <div className="w-8 h-8 rounded-lg bg-status-active/20 flex items-center justify-center mb-2">
+                    <span className="text-status-active font-mono font-bold">3</span>
+                  </div>
+                  <p className="text-xs text-text-secondary">
+                    Explore step diagrams with real-time updates
+                  </p>
                 </div>
-                <p className="text-xs text-text-secondary">
-                  Explore step diagrams with real-time updates
-                </p>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

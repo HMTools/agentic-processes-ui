@@ -13,15 +13,34 @@ const isElectron = () => {
   return typeof window !== 'undefined' && window.electronAPI !== undefined
 }
 
-export function useTemplates(projectPath: string | null) {
+// Helper to extract folder name from path
+const getFolderName = (path: string): string => {
+  const normalized = path.replace(/\\/g, '/')
+  const parts = normalized.split('/').filter(Boolean)
+  return parts[parts.length - 1] || path
+}
+
+/**
+ * Multi-source template loading hook
+ * @param frameworkPath - Path to framework repo containing .processes/
+ * @param projectPaths - Paths to project repos containing .user-processes/
+ */
+export function useTemplates(frameworkPath: string | null, projectPaths: string[] = []) {
   const [processTemplates, setProcessTemplates] = useState<ProcessTemplate[]>([])
   const [stepTemplates, setStepTemplates] = useState<StepTemplate[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Load templates when project path changes
+  // Load templates from framework and all projects
   const loadTemplates = useCallback(async () => {
-    if (!projectPath || !isElectron()) {
+    if (!isElectron()) {
+      setProcessTemplates([])
+      setStepTemplates([])
+      return
+    }
+    
+    // Need at least one source
+    if (!frameworkPath && projectPaths.length === 0) {
       setProcessTemplates([])
       setStepTemplates([])
       return
@@ -31,13 +50,65 @@ export function useTemplates(projectPath: string | null) {
     setError(null)
 
     try {
-      const [processResults, stepResults] = await Promise.all([
-        window.electronAPI.loadProcessTemplates(projectPath),
-        window.electronAPI.loadStepTemplates(projectPath)
-      ])
+      const allProcessTemplates: ProcessTemplate[] = []
+      const allStepTemplates: StepTemplate[] = []
 
-      setProcessTemplates(processResults as ProcessTemplate[])
-      setStepTemplates(stepResults as StepTemplate[])
+      // 1. Load framework templates (from .processes/)
+      if (frameworkPath) {
+        console.log('[useTemplates] Loading framework templates from:', frameworkPath)
+        const [fwProcessResults, fwStepResults] = await Promise.all([
+          window.electronAPI.loadProcessTemplates(frameworkPath),
+          window.electronAPI.loadStepTemplates(frameworkPath)
+        ])
+
+        // Add with source label
+        const fwProcessTemplates = (fwProcessResults as ProcessTemplate[]).map(t => ({
+          ...t,
+          source: 'framework'
+        }))
+        const fwStepTemplates = (fwStepResults as StepTemplate[]).map(t => ({
+          ...t,
+          source: 'framework'
+        }))
+
+        allProcessTemplates.push(...fwProcessTemplates)
+        allStepTemplates.push(...fwStepTemplates)
+        console.log('[useTemplates] Loaded', fwProcessTemplates.length, 'process templates,', fwStepTemplates.length, 'step templates from framework')
+      }
+
+      // 2. Load user templates from each project (from .user-processes/)
+      for (const projectPath of projectPaths) {
+        console.log('[useTemplates] Loading user templates from:', projectPath)
+        const projectName = getFolderName(projectPath)
+        
+        try {
+          const [userProcessResults, userStepResults] = await Promise.all([
+            window.electronAPI.loadUserTemplates(projectPath),
+            window.electronAPI.loadUserSteps(projectPath)
+          ])
+
+          // Add with source label (project folder name)
+          const userProcessTemplates = (userProcessResults as ProcessTemplate[]).map(t => ({
+            ...t,
+            source: projectName
+          }))
+          const userStepTemplates = (userStepResults as StepTemplate[]).map(t => ({
+            ...t,
+            source: projectName
+          }))
+
+          allProcessTemplates.push(...userProcessTemplates)
+          allStepTemplates.push(...userStepTemplates)
+          console.log('[useTemplates] Loaded', userProcessTemplates.length, 'process templates,', userStepTemplates.length, 'step templates from', projectName)
+        } catch (err) {
+          // Log but don't fail - some projects may not have templates
+          console.warn('[useTemplates] Failed to load user templates from', projectPath, ':', err)
+        }
+      }
+
+      setProcessTemplates(allProcessTemplates)
+      setStepTemplates(allStepTemplates)
+      console.log('[useTemplates] Total loaded:', allProcessTemplates.length, 'process templates,', allStepTemplates.length, 'step templates')
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       setError(`Failed to load templates: ${errorMessage}`)
@@ -45,7 +116,7 @@ export function useTemplates(projectPath: string | null) {
     } finally {
       setIsLoading(false)
     }
-  }, [projectPath])
+  }, [frameworkPath, projectPaths])
 
   // Load templates on mount and when project changes
   useEffect(() => {

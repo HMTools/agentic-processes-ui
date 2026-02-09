@@ -94,7 +94,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // File watching
   startWatching: (projectPath: string) => ipcRenderer.invoke('start-watching', projectPath) as Promise<StartWatchingResult>,
-  stopWatching: () => ipcRenderer.invoke('stop-watching'),
+  stopWatching: (projectPath?: string) => ipcRenderer.invoke('stop-watching', projectPath),
+  stopAllWatching: () => ipcRenderer.invoke('stop-all-watching'),
   
   // File reading
   readProcessFile: (processPath: string, fileName: string) => 
@@ -112,11 +113,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   unwatchFile: (filePath: string) =>
     ipcRenderer.invoke('unwatch-file', filePath),
   
-  // Template loading
+  // Template loading (framework templates from .processes/)
   loadProcessTemplates: (projectPath: string) =>
     ipcRenderer.invoke('load-process-templates', projectPath),
   loadStepTemplates: (projectPath: string) =>
     ipcRenderer.invoke('load-step-templates', projectPath),
+  
+  // User templates (project-specific from .user-processes/)
+  loadUserTemplates: (projectPath: string) =>
+    ipcRenderer.invoke('load-user-templates', projectPath),
+  loadUserSteps: (projectPath: string) =>
+    ipcRenderer.invoke('load-user-steps', projectPath),
+  
+  // Folder detection (determine if folder has .processes/ and/or .user-processes/)
+  detectFolderType: (path: string) =>
+    ipcRenderer.invoke('detect-folder-type', path) as Promise<{ hasProcesses: boolean; hasUserProcesses: boolean }>,
   
   // Event listeners
   onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => {
@@ -245,7 +256,8 @@ declare global {
       getCurrentProject: () => Promise<string | null>
       setProjectPath: (path: string) => Promise<boolean>
       startWatching: (projectPath: string) => Promise<StartWatchingResult>
-      stopWatching: () => Promise<boolean>
+      stopWatching: (projectPath?: string) => Promise<boolean>
+      stopAllWatching: () => Promise<boolean>
       readProcessFile: (processPath: string, fileName: string) => Promise<unknown | null>
       listProcessFiles: (processPath: string) => Promise<ProcessFile[]>
       readFileContent: (filePath: string) => Promise<string | null>
@@ -253,6 +265,9 @@ declare global {
       unwatchFile: (filePath: string) => Promise<boolean>
       loadProcessTemplates: (projectPath: string) => Promise<unknown[]>
       loadStepTemplates: (projectPath: string) => Promise<unknown[]>
+      loadUserTemplates: (projectPath: string) => Promise<unknown[]>
+      loadUserSteps: (projectPath: string) => Promise<unknown[]>
+      detectFolderType: (path: string) => Promise<{ hasProcesses: boolean; hasUserProcesses: boolean }>
       onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => () => void
       onMemoryUpdate: (callback: (event: MemoryUpdateEvent) => void) => () => void
       onLogUpdate: (callback: (event: LogUpdateEvent) => void) => () => void

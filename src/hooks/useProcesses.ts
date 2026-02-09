@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import type { ProcessInstance, ProcessSummary } from '../types'
+import type { ProcessInstance, ProcessSummary, WorkspaceConfig } from '../types'
 import { toProcessSummary } from '../services/processService'
 
 interface ProcessMap {
@@ -16,15 +16,45 @@ const isElectron = () => {
   return typeof window !== 'undefined' && window.electronAPI !== undefined
 }
 
-export function useProcesses() {
+interface UseProcessesOptions {
+  /** Initial workspace config from persisted settings */
+  initialWorkspace?: WorkspaceConfig
+  /** Callback to persist workspace changes */
+  onWorkspaceChange?: (workspace: WorkspaceConfig) => void
+}
+
+export function useProcesses(options: UseProcessesOptions = {}) {
+  const { initialWorkspace, onWorkspaceChange } = options
+  
   const [processes, setProcesses] = useState<ProcessMap>({})
-  const [projectPath, setProjectPath] = useState<string | null>(null)
-  const [isWatching, setIsWatching] = useState(false)
+  // Multi-workspace state
+  const [frameworkPath, setFrameworkPathState] = useState<string | null>(
+    initialWorkspace?.frameworkPath ?? null
+  )
+  const [projectPaths, setProjectPathsState] = useState<string[]>(
+    initialWorkspace?.projectPaths ?? []
+  )
+  const [watchingPaths, setWatchingPaths] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const [processErrors, setProcessErrors] = useState<ProcessError[]>([])
 
-  // Select project folder
-  const selectProject = useCallback(async () => {
+  // Computed: is watching at least one project
+  const isWatching = watchingPaths.size > 0
+
+  // Persist workspace changes
+  useEffect(() => {
+    if (onWorkspaceChange) {
+      onWorkspaceChange({ frameworkPath, projectPaths })
+    }
+  }, [frameworkPath, projectPaths, onWorkspaceChange])
+
+  // Set framework path (wrapper to allow external setting)
+  const setFrameworkPath = useCallback((path: string | null) => {
+    setFrameworkPathState(path)
+  }, [])
+
+  // Select a folder and detect its type
+  const selectFolder = useCallback(async () => {
     if (!isElectron()) {
       setError('This app requires Electron to select folders. Please run the app as a desktop application.')
       return null
@@ -32,47 +62,126 @@ export function useProcesses() {
     try {
       const path = await window.electronAPI.selectProjectFolder()
       if (path) {
-        setProjectPath(path)
         setError(null)
         return path
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
-      setError(`Failed to select project folder: ${errorMessage}`)
-      console.error('Select project error:', err)
+      setError(`Failed to select folder: ${errorMessage}`)
+      console.error('Select folder error:', err)
     }
     return null
   }, [])
 
-  // Start watching for changes
+  // Start watching for changes (additive - doesn't stop other watchers)
   const startWatching = useCallback(async (path: string) => {
-    if (!isElectron()) return
+    if (!isElectron()) return false
     try {
       const result = await window.electronAPI.startWatching(path)
       if (result.success) {
-        setIsWatching(true)
+        setWatchingPaths(prev => new Set([...prev, path]))
         setError(null)
+        return true
       } else {
         setError(result.error || `Failed to start file watcher for "${path}". Please ensure the folder contains a ".user-processes" directory.`)
         console.error('File watcher error:', result.error)
+        return false
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       setError(`Failed to start file watcher for "${path}". ${errorMessage}\n\nPlease ensure the folder contains a ".user-processes" directory with process.json files.`)
       console.error('File watcher error:', err)
+      return false
     }
   }, [])
 
-  // Stop watching
-  const stopWatching = useCallback(async () => {
+  // Stop watching a specific project (or all if no path provided)
+  const stopWatching = useCallback(async (path?: string) => {
     if (!isElectron()) return
     try {
-      await window.electronAPI.stopWatching()
-      setIsWatching(false)
+      if (path) {
+        await window.electronAPI.stopWatching(path)
+        setWatchingPaths(prev => {
+          const next = new Set(prev)
+          next.delete(path)
+          return next
+        })
+      } else {
+        await window.electronAPI.stopAllWatching()
+        setWatchingPaths(new Set())
+      }
     } catch (err) {
-      console.error(err)
+      console.error('Stop watching error:', err)
     }
   }, [])
+
+  // Add a folder (detect type and add appropriately)
+  const addFolder = useCallback(async (path: string) => {
+    if (!isElectron()) {
+      setError('This app requires Electron to add folders.')
+      return
+    }
+    
+    try {
+      const detection = await window.electronAPI.detectFolderType(path)
+      console.log('[useProcesses] Folder detection for', path, ':', detection)
+      
+      if (detection.hasProcesses && !detection.hasUserProcesses) {
+        // Pure framework folder (only has .processes/)
+        setFrameworkPathState(path)
+        console.log('[useProcesses] Set as framework path:', path)
+      } else if (detection.hasUserProcesses) {
+        // Project folder (has .user-processes/)
+        // Also set as framework if it has .processes/ and no framework set yet
+        if (detection.hasProcesses && !frameworkPath) {
+          setFrameworkPathState(path)
+          console.log('[useProcesses] Also set as framework path:', path)
+        }
+        
+        // Add to project paths if not already present
+        setProjectPathsState(prev => {
+          if (prev.includes(path)) return prev
+          return [...prev, path]
+        })
+        
+        // Start watching this project
+        await startWatching(path)
+        console.log('[useProcesses] Added project path:', path)
+      } else {
+        // Folder has neither .processes/ nor .user-processes/
+        setError(`Folder "${path}" does not contain .processes/ or .user-processes/ directory.`)
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      setError(`Failed to add folder: ${errorMessage}`)
+      console.error('Add folder error:', err)
+    }
+  }, [frameworkPath, startWatching])
+
+  // Remove a project folder
+  const removeProject = useCallback(async (path: string) => {
+    // Stop watching this project
+    await stopWatching(path)
+    
+    // Remove from project paths
+    setProjectPathsState(prev => prev.filter(p => p !== path))
+    
+    // Remove processes from this project
+    setProcesses(prev => {
+      const next = { ...prev }
+      for (const processPath of Object.keys(next)) {
+        if (processPath.startsWith(path)) {
+          delete next[processPath]
+        }
+      }
+      return next
+    })
+    
+    // Clear errors from this project
+    setProcessErrors(prev => prev.filter(e => !e.path.startsWith(path)))
+    
+    console.log('[useProcesses] Removed project:', path)
+  }, [stopWatching])
 
   // Handle process updates from file watcher
   useEffect(() => {
@@ -127,7 +236,8 @@ export function useProcesses() {
     const unsubscribeError = window.electronAPI.onWatcherError(({ error }) => {
       console.error('[useProcesses] Watcher error:', error)
       setError(error)
-      setIsWatching(false)
+      // Clear watching paths on error - watchers have stopped
+      setWatchingPaths(new Set())
     })
 
     return () => {
@@ -136,12 +246,24 @@ export function useProcesses() {
     }
   }, [])
 
-  // Auto-start watching when project is set
+  // Restore watchers on mount (for persisted project paths)
   useEffect(() => {
-    if (projectPath && !isWatching) {
-      startWatching(projectPath)
+    const restoreWatchers = async () => {
+      if (!isElectron()) return
+      
+      // Start watchers for all project paths that aren't already being watched
+      for (const path of projectPaths) {
+        if (!watchingPaths.has(path)) {
+          console.log('[useProcesses] Restoring watcher for:', path)
+          await startWatching(path)
+        }
+      }
     }
-  }, [projectPath, isWatching, startWatching])
+    
+    restoreWatchers()
+    // Only run when projectPaths changes from external source (e.g., initial load)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Get all processes as summaries with error handling
   const { processList, summaryErrors } = useMemo(() => {
@@ -182,29 +304,41 @@ export function useProcesses() {
     setError(null)
   }, [])
 
-  // Retry watching the current project
+  // Retry watching all projects
   const retryWatching = useCallback(async () => {
-    if (projectPath) {
-      setError(null)
-      setIsWatching(false)
-      await startWatching(projectPath)
+    setError(null)
+    // Stop all and restart
+    await stopWatching()
+    for (const path of projectPaths) {
+      await startWatching(path)
     }
-  }, [projectPath, startWatching])
+  }, [projectPaths, startWatching, stopWatching])
 
   return {
-    projectPath,
+    // Multi-workspace state
+    frameworkPath,
+    projectPaths,
+    watchingPaths: Array.from(watchingPaths),
     isWatching,
+    
+    // Error state
     error,
     processErrors: allErrors,
+    
+    // Process data
     processes: processList,
     activeProcesses,
     completedProcesses,
     failedProcesses,
-    selectProject,
+    
+    // Actions
+    selectFolder,
+    addFolder,
+    removeProject,
+    setFrameworkPath,
     startWatching,
     stopWatching,
     getProcess,
-    setProjectPath,
     clearError,
     retryWatching
   }

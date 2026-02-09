@@ -6,7 +6,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setProjectPath: (path) => ipcRenderer.invoke("set-project-path", path),
   // File watching
   startWatching: (projectPath) => ipcRenderer.invoke("start-watching", projectPath),
-  stopWatching: () => ipcRenderer.invoke("stop-watching"),
+  stopWatching: (projectPath) => ipcRenderer.invoke("stop-watching", projectPath),
+  stopAllWatching: () => ipcRenderer.invoke("stop-all-watching"),
   // File reading
   readProcessFile: (processPath, fileName) => ipcRenderer.invoke("read-process-file", processPath, fileName),
   // Process files listing and reading
@@ -15,9 +16,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // File content watching (hot reload)
   watchFile: (filePath) => ipcRenderer.invoke("watch-file", filePath),
   unwatchFile: (filePath) => ipcRenderer.invoke("unwatch-file", filePath),
-  // Template loading
+  // Template loading (framework templates from .processes/)
   loadProcessTemplates: (projectPath) => ipcRenderer.invoke("load-process-templates", projectPath),
   loadStepTemplates: (projectPath) => ipcRenderer.invoke("load-step-templates", projectPath),
+  // User templates (project-specific from .user-processes/)
+  loadUserTemplates: (projectPath) => ipcRenderer.invoke("load-user-templates", projectPath),
+  loadUserSteps: (projectPath) => ipcRenderer.invoke("load-user-steps", projectPath),
+  // Folder detection (determine if folder has .processes/ and/or .user-processes/)
+  detectFolderType: (path) => ipcRenderer.invoke("detect-folder-type", path),
   // Event listeners
   onProcessUpdate: (callback) => {
     const subscription = (_event, data) => callback(data);

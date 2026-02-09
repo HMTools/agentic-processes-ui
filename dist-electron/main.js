@@ -1,7 +1,7 @@
 import { ipcMain, dialog, clipboard, BrowserWindow, app, Menu } from "electron";
 import { join, dirname, extname } from "path";
 import { fileURLToPath } from "url";
-import { readFile, readdir, stat } from "fs/promises";
+import { mkdir, readFile, readdir, stat } from "fs/promises";
 import { existsSync } from "fs";
 import { watch } from "chokidar";
 import { spawn } from "node-pty";
@@ -9,19 +9,27 @@ import { EventEmitter } from "events";
 import { randomUUID } from "crypto";
 import { platform } from "os";
 import { execSync } from "child_process";
-let watcher = null;
-function createFileWatcher(projectPath, callback, onError) {
-  stopFileWatcher();
+const watchers = /* @__PURE__ */ new Map();
+async function createFileWatcher(projectPath, callback, onError) {
+  stopFileWatcher(projectPath);
   const userProcessesPath = join(projectPath, ".user-processes");
   console.log("Starting file watcher for:", userProcessesPath);
   console.log("Path exists:", existsSync(userProcessesPath));
   if (!existsSync(userProcessesPath)) {
-    const error = `The ".user-processes" folder was not found in "${projectPath}". Please ensure this folder exists with active/completed/failed subdirectories containing process.json files.`;
-    console.error(error);
-    if (onError) onError(error);
-    return { success: false, error };
+    console.log("Creating .user-processes directory structure...");
+    try {
+      await mkdir(join(userProcessesPath, "active"), { recursive: true });
+      await mkdir(join(userProcessesPath, "completed"), { recursive: true });
+      await mkdir(join(userProcessesPath, "failed"), { recursive: true });
+      console.log(".user-processes directory structure created successfully");
+    } catch (error) {
+      const errorMsg = `Failed to create .user-processes directory structure: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(errorMsg);
+      if (onError) onError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
   }
-  watcher = watch(userProcessesPath, {
+  const watcher = watch(userProcessesPath, {
     persistent: true,
     ignoreInitial: false,
     usePolling: true,
@@ -90,16 +98,30 @@ function createFileWatcher(projectPath, callback, onError) {
     }
   });
   watcher.on("ready", () => {
-    console.log("File watcher ready");
+    console.log(`File watcher ready for: ${projectPath}`);
   });
+  watchers.set(projectPath, watcher);
   return { success: true };
 }
-function stopFileWatcher() {
-  if (watcher) {
-    watcher.close();
-    watcher = null;
-    console.log("File watcher stopped");
+function stopFileWatcher(projectPath) {
+  if (projectPath) {
+    const watcher = watchers.get(projectPath);
+    if (watcher) {
+      watcher.close();
+      watchers.delete(projectPath);
+      console.log(`File watcher stopped for: ${projectPath}`);
+    }
+  } else {
+    stopAllFileWatchers();
   }
+}
+function stopAllFileWatchers() {
+  for (const [path, watcher] of watchers) {
+    watcher.close();
+    console.log(`File watcher stopped for: ${path}`);
+  }
+  watchers.clear();
+  console.log("All file watchers stopped");
 }
 function readRegistryValue(key, valueName) {
   try {
@@ -244,6 +266,10 @@ class AgentSessionManager extends EventEmitter {
       pty.onExit(({ exitCode }) => {
         const currentSession = this.sessions.get(sessionId);
         if (currentSession) {
+          if (currentSession.status === "stopped") {
+            currentSession.pty = null;
+            return;
+          }
           currentSession.status = exitCode === 0 ? "stopped" : "error";
           currentSession.pty = null;
           this.emit("status", {
@@ -256,13 +282,13 @@ class AgentSessionManager extends EventEmitter {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const agentCommand = config.args?.length ? `${config.command} ${config.args.join(" ")}` : config.command;
       pty.write(`${agentCommand}\r`);
+      await new Promise((resolve) => setTimeout(resolve, 2e3));
       session.status = "running";
       this.emit("status", {
         sessionId,
         status: "running"
       });
       if (processPath) {
-        await new Promise((resolve) => setTimeout(resolve, 2e3));
         await this.attachToProcess(sessionId, processPath);
       }
       return this.getSessionPublic(session);
@@ -480,6 +506,11 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools();
+    mainWindow.webContents.on("console-message", (_event, level, message) => {
+      if (message.includes("Autofill.enable") || message.includes("Autofill.setAddresses")) {
+        return;
+      }
+    });
   } else {
     mainWindow.loadFile(join(__dirname$1, "../dist/index.html"));
   }
@@ -539,9 +570,9 @@ ipcMain.handle("set-project-path", (_event, path) => {
   currentProjectPath = path;
   return true;
 });
-ipcMain.handle("start-watching", (_event, projectPath) => {
+ipcMain.handle("start-watching", async (_event, projectPath) => {
   if (mainWindow) {
-    const result = createFileWatcher(
+    const result = await createFileWatcher(
       projectPath,
       (event, fileType, data) => {
         switch (fileType) {
@@ -577,8 +608,12 @@ ipcMain.handle("start-watching", (_event, projectPath) => {
   }
   return { success: true };
 });
-ipcMain.handle("stop-watching", () => {
-  stopFileWatcher();
+ipcMain.handle("stop-watching", (_event, projectPath) => {
+  stopFileWatcher(projectPath);
+  return true;
+});
+ipcMain.handle("stop-all-watching", () => {
+  stopAllFileWatchers();
   return true;
 });
 ipcMain.handle("read-process-file", async (_event, processPath, fileName) => {
@@ -759,6 +794,124 @@ ipcMain.handle("load-process-templates", async (_event, projectPath) => {
     console.error("Error loading process templates:", error);
     return [];
   }
+});
+ipcMain.handle("load-user-templates", async (_event, projectPath) => {
+  try {
+    const templatesPath = join(projectPath, ".user-processes", "templates");
+    if (!existsSync(templatesPath)) {
+      console.log(`User templates directory not found: ${templatesPath}`);
+      return [];
+    }
+    const templates = [];
+    const categories = await readdir(templatesPath);
+    for (const category of categories) {
+      const categoryPath = join(templatesPath, category);
+      const categoryStat = await stat(categoryPath);
+      if (!categoryStat.isDirectory() || category.startsWith(".") || category.startsWith("_")) {
+        continue;
+      }
+      const directTemplateJson = join(categoryPath, `${category}.json`);
+      if (existsSync(directTemplateJson)) {
+        try {
+          const content = await readFile(directTemplateJson, "utf-8");
+          const template = JSON.parse(content);
+          if (template.type === "template") {
+            template.filePath = directTemplateJson;
+            template.markdownPath = join(categoryPath, `${category}.md`);
+            if (existsSync(template.markdownPath)) {
+              template.markdownContent = await readFile(template.markdownPath, "utf-8");
+            }
+            templates.push(template);
+          }
+        } catch (err) {
+          console.error(`Error reading user template: ${directTemplateJson}`, err);
+        }
+        continue;
+      }
+      const templateFolders = await readdir(categoryPath);
+      for (const templateName of templateFolders) {
+        const templatePath = join(categoryPath, templateName);
+        const templateStat = await stat(templatePath);
+        if (!templateStat.isDirectory() || templateName.startsWith(".") || templateName.startsWith("_")) {
+          continue;
+        }
+        const jsonPath = join(templatePath, `${templateName}.json`);
+        if (existsSync(jsonPath)) {
+          try {
+            const content = await readFile(jsonPath, "utf-8");
+            const template = JSON.parse(content);
+            if (template.type === "template") {
+              template.filePath = jsonPath;
+              template.markdownPath = join(templatePath, `${templateName}.md`);
+              if (existsSync(template.markdownPath)) {
+                template.markdownContent = await readFile(template.markdownPath, "utf-8");
+              }
+              templates.push(template);
+            }
+          } catch (err) {
+            console.error(`Error reading user template: ${jsonPath}`, err);
+          }
+        }
+      }
+    }
+    return templates;
+  } catch (error) {
+    console.error("Error loading user templates:", error);
+    return [];
+  }
+});
+ipcMain.handle("load-user-steps", async (_event, projectPath) => {
+  try {
+    const stepsPath = join(projectPath, ".user-processes", "steps");
+    if (!existsSync(stepsPath)) {
+      console.log(`User steps directory not found: ${stepsPath}`);
+      return [];
+    }
+    const steps = [];
+    const categories = await readdir(stepsPath);
+    for (const category of categories) {
+      const categoryPath = join(stepsPath, category);
+      const categoryStat = await stat(categoryPath);
+      if (!categoryStat.isDirectory() || category.startsWith(".") || category.startsWith("_")) {
+        continue;
+      }
+      const stepFolders = await readdir(categoryPath);
+      for (const stepName of stepFolders) {
+        const stepPath = join(categoryPath, stepName);
+        const stepStat = await stat(stepPath);
+        if (!stepStat.isDirectory() || stepName.startsWith(".") || stepName.startsWith("_")) {
+          continue;
+        }
+        const jsonPath = join(stepPath, `${stepName}.json`);
+        if (existsSync(jsonPath)) {
+          try {
+            const content = await readFile(jsonPath, "utf-8");
+            const step = JSON.parse(content);
+            if (step.type === "step") {
+              step.filePath = jsonPath;
+              step.markdownPath = join(stepPath, `${stepName}.md`);
+              if (existsSync(step.markdownPath)) {
+                step.markdownContent = await readFile(step.markdownPath, "utf-8");
+              }
+              steps.push(step);
+            }
+          } catch (err) {
+            console.error(`Error reading user step: ${jsonPath}`, err);
+          }
+        }
+      }
+    }
+    return steps;
+  } catch (error) {
+    console.error("Error loading user steps:", error);
+    return [];
+  }
+});
+ipcMain.handle("detect-folder-type", async (_event, path) => {
+  return {
+    hasProcesses: existsSync(join(path, ".processes")),
+    hasUserProcesses: existsSync(join(path, ".user-processes"))
+  };
 });
 ipcMain.handle("load-step-templates", async (_event, projectPath) => {
   try {
@@ -1005,9 +1158,9 @@ app.whenReady().then(() => {
   });
 });
 app.on("window-all-closed", () => {
-  stopFileWatcher();
-  for (const [, watcher2] of fileContentWatchers) {
-    watcher2.close();
+  stopAllFileWatchers();
+  for (const [, watcher] of fileContentWatchers) {
+    watcher.close();
   }
   fileContentWatchers.clear();
   for (const [, win] of terminalWindows) {

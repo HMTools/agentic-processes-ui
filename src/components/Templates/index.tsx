@@ -1,19 +1,25 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useTemplates } from '../../hooks/useTemplates'
+import { useFavoriteTemplates } from '../../hooks/useFavoriteTemplates'
 import type { ProcessTemplate, StepTemplate } from '../../types'
 import { ProcessTemplateList } from './ProcessTemplateList'
 import { StepTemplateList } from './StepTemplateList'
 import { TemplateDetail } from './TemplateDetail'
 
+const FAVORITES_FILTER = '__favorites__'
+
 interface TemplatesProps {
-  projectPath: string | null
+  /** Path to the framework folder containing .processes/ */
+  frameworkPath: string | null
+  /** Paths to project folders that may have .user-processes/templates/ */
+  projectPaths: string[]
   onBack: () => void
   onUseTemplate?: (template: ProcessTemplate) => void
 }
 
 type TabType = 'process' | 'step'
 
-export function Templates({ projectPath, onBack, onUseTemplate }: TemplatesProps) {
+export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }: TemplatesProps) {
   const {
     processTemplates,
     stepTemplates,
@@ -22,7 +28,9 @@ export function Templates({ projectPath, onBack, onUseTemplate }: TemplatesProps
     isLoading,
     error,
     loadTemplates
-  } = useTemplates(projectPath)
+  } = useTemplates(frameworkPath, projectPaths)
+
+  const { isFavorite, toggleFavorite, countFavorites } = useFavoriteTemplates()
 
   const [activeTab, setActiveTab] = useState<TabType>('process')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
@@ -44,8 +52,34 @@ export function Templates({ projectPath, onBack, onUseTemplate }: TemplatesProps
     setSelectedTemplate(null)
   }, [])
 
+  // Wrap isFavorite / toggleFavorite for the active tab type
+  const isTemplateFavorite = useCallback((name: string) => {
+    return isFavorite(activeTab, name)
+  }, [isFavorite, activeTab])
+
+  const handleToggleFavorite = useCallback((name: string) => {
+    toggleFavorite(activeTab, name)
+  }, [toggleFavorite, activeTab])
+
   const categories = activeTab === 'process' ? processCategories : stepCategories
   const templateCount = activeTab === 'process' ? processTemplates.length : stepTemplates.length
+  const favoritesCount = countFavorites(activeTab)
+
+  // When the favorites filter is active, pre-filter templates to only favorites
+  const showingFavorites = selectedCategory === FAVORITES_FILTER
+
+  const displayedProcessTemplates = useMemo(() => {
+    if (!showingFavorites) return processTemplates
+    return processTemplates.filter(t => isFavorite('process', t.name))
+  }, [processTemplates, showingFavorites, isFavorite])
+
+  const displayedStepTemplates = useMemo(() => {
+    if (!showingFavorites) return stepTemplates
+    return stepTemplates.filter(t => isFavorite('step', t.name))
+  }, [stepTemplates, showingFavorites, isFavorite])
+
+  // Pass null as category to list components when showing favorites (already pre-filtered)
+  const listCategory = showingFavorites ? null : selectedCategory
 
   return (
     <div className="h-full w-full flex flex-col bg-background">
@@ -128,7 +162,7 @@ export function Templates({ projectPath, onBack, onUseTemplate }: TemplatesProps
               </button>
             </div>
           </div>
-        ) : !projectPath ? (
+        ) : !frameworkPath && projectPaths.length === 0 ? (
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="text-center max-w-md">
               <div className="w-12 h-12 rounded-full bg-surface-elevated flex items-center justify-center mx-auto mb-4">
@@ -137,9 +171,9 @@ export function Templates({ projectPath, onBack, onUseTemplate }: TemplatesProps
                     d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
               </div>
-              <h3 className="text-sm font-medium text-text-primary mb-2">No Project Selected</h3>
+              <h3 className="text-sm font-medium text-text-primary mb-2">No Workspace Configured</h3>
               <p className="text-xs text-text-muted">
-                Select a project folder to view its templates
+                Add a framework or project folder to view templates
               </p>
             </div>
           </div>
@@ -174,6 +208,19 @@ export function Templates({ projectPath, onBack, onUseTemplate }: TemplatesProps
 
                 {/* Categories */}
                 <div className="space-y-1">
+                  {favoritesCount > 0 && (
+                    <CategoryButton
+                      active={selectedCategory === FAVORITES_FILTER}
+                      onClick={() => setSelectedCategory(FAVORITES_FILTER)}
+                      icon={
+                        <svg className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                        </svg>
+                      }
+                    >
+                      Favorites ({favoritesCount})
+                    </CategoryButton>
+                  )}
                   <CategoryButton
                     active={selectedCategory === null}
                     onClick={() => setSelectedCategory(null)}
@@ -198,19 +245,23 @@ export function Templates({ projectPath, onBack, onUseTemplate }: TemplatesProps
               <div className={`flex-1 overflow-y-auto ${selectedTemplate ? 'w-1/2' : 'w-full'}`}>
                 {activeTab === 'process' ? (
                   <ProcessTemplateList
-                    templates={processTemplates}
-                    selectedCategory={selectedCategory}
+                    templates={displayedProcessTemplates}
+                    selectedCategory={listCategory}
                     searchQuery={searchQuery}
                     selectedTemplate={selectedTemplate as ProcessTemplate | null}
                     onSelectTemplate={handleSelectTemplate}
+                    isFavorite={isTemplateFavorite}
+                    onToggleFavorite={handleToggleFavorite}
                   />
                 ) : (
                   <StepTemplateList
-                    templates={stepTemplates}
-                    selectedCategory={selectedCategory}
+                    templates={displayedStepTemplates}
+                    selectedCategory={listCategory}
                     searchQuery={searchQuery}
                     selectedTemplate={selectedTemplate as StepTemplate | null}
                     onSelectTemplate={handleSelectTemplate}
+                    isFavorite={isTemplateFavorite}
+                    onToggleFavorite={handleToggleFavorite}
                   />
                 )}
               </div>
@@ -268,21 +319,23 @@ function TabButton({ active, onClick, count, children }: TabButtonProps) {
 interface CategoryButtonProps {
   active: boolean
   onClick: () => void
+  icon?: React.ReactNode
   children: React.ReactNode
 }
 
-function CategoryButton({ active, onClick, children }: CategoryButtonProps) {
+function CategoryButton({ active, onClick, icon, children }: CategoryButtonProps) {
   return (
     <button
       onClick={onClick}
       className={`
-        w-full px-3 py-1.5 text-xs text-left rounded-md transition-colors
+        w-full px-3 py-1.5 text-xs text-left rounded-md transition-colors flex items-center gap-1.5
         ${active 
           ? 'bg-accent/20 text-accent font-medium' 
           : 'text-text-secondary hover:text-text-primary hover:bg-surface'
         }
       `}
     >
+      {icon}
       {children}
     </button>
   )

@@ -231,7 +231,7 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
     }
   }, [isResizingAgent, handleAgentResizeMove, handleAgentResizeEnd])
 
-  // Global Shift+P keyboard shortcut to open Lazy Prompts modal
+  // Global Ctrl+Shift+P keyboard shortcut to open Lazy Prompts modal
   useEffect(() => {
     if (!settings.lazyPrompts.enabled) return
 
@@ -242,7 +242,7 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
         return
       }
 
-      if (e.shiftKey && e.key === 'P') {
+      if (e.ctrlKey && e.shiftKey && e.key === 'P') {
         e.preventDefault()
         setShowLazyPromptModal(true)
       }

@@ -116,7 +116,9 @@ export function useAgentSessions(options: UseAgentSessionsOptions = {}): UseAgen
       const result = await agentService.killSession(sessionId)
       
       if (result.success) {
-        setSessions(prev => prev.filter(s => s.id !== sessionId))
+        setSessions(prev => prev.map(s =>
+          s.id === sessionId ? { ...s, status: 'stopped' as const } : s
+        ))
         return true
       } else {
         setError(result.error || 'Failed to kill session')

@@ -247,6 +247,26 @@ export interface AgentSettings {
 }
 
 // ============================================================================
+// Workspace types
+// ============================================================================
+
+/** Configuration for multi-workspace setup */
+export interface WorkspaceConfig {
+  /** Path to the framework repo (agentic-processes/) containing .processes/ */
+  frameworkPath: string | null
+  /** Paths to client project repos, each containing .user-processes/ */
+  projectPaths: string[]
+}
+
+/** Result of detecting what a folder contains */
+export interface FolderDetectionResult {
+  /** Whether the folder contains .processes/ (framework) */
+  hasProcesses: boolean
+  /** Whether the folder contains .user-processes/ (project) */
+  hasUserProcesses: boolean
+}
+
+// ============================================================================
 // Settings types
 // ============================================================================
 
@@ -258,6 +278,7 @@ export interface LazyPromptsSettings {
 export interface AppSettings {
   lazyPrompts: LazyPromptsSettings
   agent: AgentSettings
+  workspace: WorkspaceConfig
 }
 
 // ============================================================================

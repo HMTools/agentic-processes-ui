@@ -24,6 +24,17 @@ export function generateNewProcessPrompt(
 }
 
 /**
+ * Generate a /new-process command with template and free text prompt.
+ * This is the simplified format: /new-process <template> <user's description>
+ */
+export function generateNewProcessCommand(
+  template: ProcessTemplate,
+  promptText: string
+): string {
+  return `/new-process ${template.name} ${promptText.trim()}`
+}
+
+/**
  * Validate that all required parameters have non-empty values.
  */
 export function validateParameters(
@@ -116,6 +127,69 @@ export async function createProcessViaAgent(
       sessionId,
       error: sendResult.error || 'Failed to send prompt to agent'
     }
+  }
+
+  return { success: true, sessionId }
+}
+
+/**
+ * Create a new process via an agent session using free text prompt.
+ * No parameter validation - the agent will extract parameters from the prompt text.
+ * Always creates a NEW agent session (sessions are per-process-instance).
+ */
+export async function createProcessViaAgentWithPrompt(
+  template: ProcessTemplate,
+  promptText: string,
+  projectPath: string,
+  settings: AgentSettings
+): Promise<{ success: boolean; sessionId?: string; error?: string }> {
+  // Basic validation - ensure prompt is not empty
+  if (!promptText || promptText.trim() === '') {
+    return { success: false, error: 'Please provide a description of what you want to create' }
+  }
+
+  // Generate the /new-process command
+  const prompt = generateNewProcessCommand(template, promptText)
+
+  // Always create a new agent session (never reuse — sessions are 1:1 with process instances)
+  const createResult = await agentService.createAgentSession(
+    settings.defaultAgentType,
+    projectPath
+    // No processPath yet — the process doesn't exist until the agent creates it
+  )
+
+  if (!createResult.success || !createResult.session) {
+    return {
+      success: false,
+      error: createResult.error || 'Failed to create agent session'
+    }
+  }
+
+  const sessionId = createResult.session.id
+
+  // Send the /new-process command to the new session
+  const sendResult = await agentService.sendPrompt(sessionId, prompt)
+
+  if (!sendResult.success) {
+    return {
+      success: false,
+      sessionId,
+      error: sendResult.error || 'Failed to send prompt to agent'
+    }
+  }
+
+  // Open terminal window to show agent output
+  // Use placeholder values since process doesn't exist yet
+  const processName = `Creating: ${template.metadata.title}`
+  try {
+    await window.electronAPI.openTerminalWindow(
+      sessionId,
+      '', // Empty processPath - process doesn't exist yet
+      processName
+    )
+  } catch (err) {
+    // Log error but don't fail the process creation
+    console.error('Failed to open terminal window:', err)
   }
 
   return { success: true, sessionId }

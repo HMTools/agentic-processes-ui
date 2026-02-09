@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url'
 import { readFile, readdir, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { watch, type FSWatcher } from 'chokidar'
-import { createFileWatcher, stopFileWatcher } from './fileWatcher'
+import { createFileWatcher, stopFileWatcher, stopAllFileWatchers } from './fileWatcher'
 import { 
   getAgentManager, 
   cleanupAgentManager, 
@@ -43,6 +43,14 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
     mainWindow.webContents.openDevTools()
+    
+    // Filter out harmless DevTools protocol errors
+    mainWindow.webContents.on('console-message', (_event, level, message) => {
+      // Suppress Autofill DevTools protocol errors (they're harmless in Electron)
+      if (message.includes('Autofill.enable') || message.includes('Autofill.setAddresses')) {
+        return
+      }
+    })
   } else {
     mainWindow.loadFile(join(__dirname, '../dist/index.html'))
   }
@@ -119,9 +127,9 @@ ipcMain.handle('set-project-path', (_event, path: string) => {
   return true
 })
 
-ipcMain.handle('start-watching', (_event, projectPath: string) => {
+ipcMain.handle('start-watching', async (_event, projectPath: string) => {
   if (mainWindow) {
-    const result = createFileWatcher(
+    const result = await createFileWatcher(
       projectPath, 
       (event, fileType, data) => {
         // Send to appropriate channel based on file type
@@ -162,8 +170,13 @@ ipcMain.handle('start-watching', (_event, projectPath: string) => {
   return { success: true }
 })
 
-ipcMain.handle('stop-watching', () => {
-  stopFileWatcher()
+ipcMain.handle('stop-watching', (_event, projectPath?: string) => {
+  stopFileWatcher(projectPath)
+  return true
+})
+
+ipcMain.handle('stop-all-watching', () => {
+  stopAllFileWatchers()
   return true
 })
 
@@ -388,6 +401,157 @@ ipcMain.handle('load-process-templates', async (_event, projectPath: string) => 
   } catch (error) {
     console.error('Error loading process templates:', error)
     return []
+  }
+})
+
+// Load user templates from .user-processes/templates/ (project-specific)
+ipcMain.handle('load-user-templates', async (_event, projectPath: string) => {
+  try {
+    const templatesPath = join(projectPath, '.user-processes', 'templates')
+    
+    if (!existsSync(templatesPath)) {
+      console.log(`User templates directory not found: ${templatesPath}`)
+      return []
+    }
+    
+    const templates = []
+    const categories = await readdir(templatesPath)
+    
+    for (const category of categories) {
+      const categoryPath = join(templatesPath, category)
+      const categoryStat = await stat(categoryPath)
+      
+      // Skip non-directories and special files
+      if (!categoryStat.isDirectory() || category.startsWith('.') || category.startsWith('_')) {
+        continue
+      }
+      
+      // Check if this is a direct template folder (has .json file with same name)
+      const directTemplateJson = join(categoryPath, `${category}.json`)
+      if (existsSync(directTemplateJson)) {
+        try {
+          const content = await readFile(directTemplateJson, 'utf-8')
+          const template = JSON.parse(content)
+          if (template.type === 'template') {
+            template.filePath = directTemplateJson
+            template.markdownPath = join(categoryPath, `${category}.md`)
+            if (existsSync(template.markdownPath)) {
+              template.markdownContent = await readFile(template.markdownPath, 'utf-8')
+            }
+            templates.push(template)
+          }
+        } catch (err) {
+          console.error(`Error reading user template: ${directTemplateJson}`, err)
+        }
+        continue
+      }
+      
+      // Otherwise, scan for template subdirectories
+      const templateFolders = await readdir(categoryPath)
+      
+      for (const templateName of templateFolders) {
+        const templatePath = join(categoryPath, templateName)
+        const templateStat = await stat(templatePath)
+        
+        if (!templateStat.isDirectory() || templateName.startsWith('.') || templateName.startsWith('_')) {
+          continue
+        }
+        
+        const jsonPath = join(templatePath, `${templateName}.json`)
+        
+        if (existsSync(jsonPath)) {
+          try {
+            const content = await readFile(jsonPath, 'utf-8')
+            const template = JSON.parse(content)
+            
+            if (template.type === 'template') {
+              template.filePath = jsonPath
+              template.markdownPath = join(templatePath, `${templateName}.md`)
+              if (existsSync(template.markdownPath)) {
+                template.markdownContent = await readFile(template.markdownPath, 'utf-8')
+              }
+              templates.push(template)
+            }
+          } catch (err) {
+            console.error(`Error reading user template: ${jsonPath}`, err)
+          }
+        }
+      }
+    }
+    
+    return templates
+  } catch (error) {
+    console.error('Error loading user templates:', error)
+    return []
+  }
+})
+
+// Load user step templates from .user-processes/steps/ (project-specific)
+ipcMain.handle('load-user-steps', async (_event, projectPath: string) => {
+  try {
+    const stepsPath = join(projectPath, '.user-processes', 'steps')
+    
+    if (!existsSync(stepsPath)) {
+      console.log(`User steps directory not found: ${stepsPath}`)
+      return []
+    }
+    
+    const steps = []
+    const categories = await readdir(stepsPath)
+    
+    for (const category of categories) {
+      const categoryPath = join(stepsPath, category)
+      const categoryStat = await stat(categoryPath)
+      
+      // Skip non-directories and special folders like _components
+      if (!categoryStat.isDirectory() || category.startsWith('.') || category.startsWith('_')) {
+        continue
+      }
+      
+      const stepFolders = await readdir(categoryPath)
+      
+      for (const stepName of stepFolders) {
+        const stepPath = join(categoryPath, stepName)
+        const stepStat = await stat(stepPath)
+        
+        if (!stepStat.isDirectory() || stepName.startsWith('.') || stepName.startsWith('_')) {
+          continue
+        }
+        
+        const jsonPath = join(stepPath, `${stepName}.json`)
+        
+        if (existsSync(jsonPath)) {
+          try {
+            const content = await readFile(jsonPath, 'utf-8')
+            const step = JSON.parse(content)
+            
+            if (step.type === 'step') {
+              step.filePath = jsonPath
+              step.markdownPath = join(stepPath, `${stepName}.md`)
+              if (existsSync(step.markdownPath)) {
+                step.markdownContent = await readFile(step.markdownPath, 'utf-8')
+              }
+              steps.push(step)
+            }
+          } catch (err) {
+            console.error(`Error reading user step: ${jsonPath}`, err)
+          }
+        }
+      }
+    }
+    
+    return steps
+  } catch (error) {
+    console.error('Error loading user steps:', error)
+    return []
+  }
+})
+
+// Detect what type of folder this is (framework with .processes/ and/or project with .user-processes/)
+ipcMain.handle('detect-folder-type', async (_event, path: string) => {
+  return {
+    hasProcesses: existsSync(join(path, '.processes')),
+    hasUserProcesses: existsSync(join(path, '.user-processes'))
   }
 })
 
@@ -702,7 +866,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  stopFileWatcher()
+  stopAllFileWatchers()
   // Stop all file content watchers
   for (const [, watcher] of fileContentWatchers) {
     watcher.close()

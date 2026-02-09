@@ -1,15 +1,20 @@
 interface ErrorDisplayProps {
   error: string
-  projectPath?: string | null
+  /** All configured project paths */
+  projectPaths?: string[]
   onRetry: () => void
-  onSelectDifferent: () => void
+  /** Add a folder (auto-detects type) */
+  onAddFolder: (path: string) => Promise<void>
+  /** Opens folder picker dialog */
+  onSelectFolder: () => void
 }
 
 export function ErrorDisplay({ 
   error, 
-  projectPath, 
+  projectPaths = [], 
   onRetry, 
-  onSelectDifferent 
+  onAddFolder,
+  onSelectFolder 
 }: ErrorDisplayProps) {
   return (
     <div className="h-full w-full flex items-center justify-center bg-background p-8">
@@ -50,16 +55,18 @@ export function ErrorDisplay({
             </div>
           </div>
 
-          {/* Project Path if available */}
-          {projectPath && (
+          {/* Project Paths if available */}
+          {projectPaths.length > 0 && (
             <div>
               <label className="text-xs text-text-muted uppercase tracking-wider block mb-2">
-                Selected Folder
+                Configured Project Folders ({projectPaths.length})
               </label>
-              <div className="bg-background rounded-lg p-4 border border-border">
-                <code className="text-sm text-text-secondary font-mono break-all">
-                  {projectPath}
-                </code>
+              <div className="bg-background rounded-lg p-3 border border-border space-y-2">
+                {projectPaths.map((path, idx) => (
+                  <code key={idx} className="block text-sm text-text-secondary font-mono break-all">
+                    {path}
+                  </code>
+                ))}
               </div>
             </div>
           )}
@@ -70,10 +77,10 @@ export function ErrorDisplay({
               Troubleshooting Tips
             </label>
             <ul className="text-sm text-text-secondary space-y-2 list-disc list-inside">
-              <li>Ensure the selected folder contains a <code className="text-accent">.user-processes</code> directory</li>
-              <li>Check that the folder has <code className="text-accent">active</code>, <code className="text-accent">completed</code>, or <code className="text-accent">failed</code> subdirectories</li>
-              <li>Verify you have read permissions for the selected folder</li>
-              <li>Try selecting a different project folder</li>
+              <li>The <code className="text-accent">.user-processes</code> directory structure will be created automatically if it doesn't exist</li>
+              <li>Verify you have write permissions for the selected folders</li>
+              <li>Check that the paths are valid and accessible</li>
+              <li>Try adding a different project folder</li>
             </ul>
           </div>
 
@@ -86,10 +93,10 @@ export function ErrorDisplay({
               Try Again
             </button>
             <button
-              onClick={onSelectDifferent}
+              onClick={onSelectFolder}
               className="px-4 py-2 bg-surface-elevated text-text-primary text-sm font-medium rounded-md hover:bg-surface-elevated/80 transition-colors border border-border"
             >
-              Select Different Folder
+              Add Folder
             </button>
           </div>
         </div>
