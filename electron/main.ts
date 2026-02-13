@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard } from 'electron'
 import { join, dirname, extname } from 'path'
 import { fileURLToPath } from 'url'
-import { readFile, readdir, stat } from 'fs/promises'
+import { readFile, readdir, stat, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import { watch, type FSWatcher } from 'chokidar'
 import { createFileWatcher, stopFileWatcher, stopAllFileWatchers } from './fileWatcher'
@@ -319,6 +319,36 @@ ipcMain.handle('unwatch-file', (_event, filePath: string) => {
     console.log(`Stopped watching file: ${filePath}`)
   }
   return true
+})
+
+// Delete a process instance
+ipcMain.handle('delete-process-instance', async (_event, processPath: string) => {
+  try {
+    // Extract the directory path from the process.json path
+    const processDir = dirname(processPath)
+
+    // Validate path is within .user-processes
+    if (!processDir.includes('.user-processes')) {
+      return { success: false, error: 'Invalid path: not in .user-processes' }
+    }
+
+    // Check if directory exists
+    if (!existsSync(processDir)) {
+      return { success: false, error: 'Process directory not found' }
+    }
+
+    // Delete the directory recursively
+    await rm(processDir, { recursive: true, force: true })
+
+    console.log(`Deleted process directory: ${processDir}`)
+    return { success: true }
+  } catch (error) {
+    console.error('Error deleting process instance:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
 })
 
 // Load all process templates from .processes/templates/

@@ -6,6 +6,8 @@ import { Alert } from '../Alert'
 import { LazyPromptButton } from '../LazyPromptButton'
 import { LazyPromptModal } from '../LazyPromptModal'
 import { AgentSessionPanel } from '../AgentSessionPanel'
+import { ConfirmationModal } from '../ConfirmationModal'
+import { useToast } from '../Toast'
 import { getStatusColor, formatTimestamp } from '../../services/processService'
 import { useAgentSessions } from '../../hooks/useAgentSessions'
 import { useSettings } from '../../hooks/useSettings'
@@ -37,21 +39,41 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
   const [logLoading, setLogLoading] = useState(false)
   const [alertMessage, setAlertMessage] = useState<string | null>(null)
   const [showAgentPanel, setShowAgentPanel] = useState(false)
-  
+
   // Agent panel resize state
   const [agentPanelHeight, setAgentPanelHeight] = useState(AGENT_PANEL_DEFAULT_HEIGHT)
   const [isResizingAgent, setIsResizingAgent] = useState(false)
   const mainContentRef = useRef<HTMLDivElement>(null)
-  
+
   // Lazy prompt modal state (for Shift+P shortcut)
   const [showLazyPromptModal, setShowLazyPromptModal] = useState(false)
   const { settings } = useSettings()
-  
+
+  // Delete confirmation state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const { showToast } = useToast()
+
   // Agent sessions for this process
   const { hasActiveSession } = useAgentSessions({ processPath })
-  
+
   // Get project path for agent working directory
   const projectPath = process.metadata.projectPath || ''
+
+  // Delete handler
+  const handleDelete = async () => {
+    setDeleting(true)
+    const result = await window.electronAPI.deleteProcessInstance(processPath)
+
+    if (result.success) {
+      onBack() // Navigate to dashboard first
+      showToast('Process deleted successfully', 'success')
+    } else {
+      showToast(result.error || 'Failed to delete process', 'error')
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
 
   const completedSteps = process.steps.filter(s => s.status === 'completed').length
   const progress = Math.round((completedSteps / process.steps.length) * 100)
@@ -274,11 +296,20 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <LazyPromptButton 
-              process={process} 
+            <LazyPromptButton
+              process={process}
               processPath={processPath!}
               variant="default"
             />
+            {/* Delete Button */}
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-status-failed/30 bg-status-failed/10 text-status-failed hover:bg-status-failed/20 transition-all"
+              title="Delete this process"
+            >
+              <TrashIcon className="w-4 h-4" />
+              <span>Delete</span>
+            </button>
             {/* Agent Panel Toggle */}
             <button
               onClick={() => setShowAgentPanel(!showAgentPanel)}
@@ -418,6 +449,23 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
           onClose={() => setShowLazyPromptModal(false)}
         />
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm}
+        title="Delete Process"
+        message={
+          process.status === 'running'
+            ? `This process is currently running. Deleting "${process.name}" will permanently remove all data and cannot be undone.`
+            : `Are you sure you want to delete "${process.name}"? This will permanently remove all process data and cannot be undone.`
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   )
 }
@@ -486,5 +534,14 @@ function StepDetails({ step, onClose }: { step: ProcessStep; onClose: () => void
         )}
       </div>
     </div>
+  )
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
   )
 }

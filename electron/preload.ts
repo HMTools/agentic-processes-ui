@@ -112,7 +112,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('watch-file', filePath),
   unwatchFile: (filePath: string) =>
     ipcRenderer.invoke('unwatch-file', filePath),
-  
+
+  // Process instance management
+  deleteProcessInstance: (processPath: string) =>
+    ipcRenderer.invoke('delete-process-instance', processPath) as Promise<{ success: boolean; error?: string }>,
+
   // Template loading (framework templates from .processes/)
   loadProcessTemplates: (projectPath: string) =>
     ipcRenderer.invoke('load-process-templates', projectPath),
@@ -263,6 +267,7 @@ declare global {
       readFileContent: (filePath: string) => Promise<string | null>
       watchFile: (filePath: string) => Promise<boolean>
       unwatchFile: (filePath: string) => Promise<boolean>
+      deleteProcessInstance: (processPath: string) => Promise<{ success: boolean; error?: string }>
       loadProcessTemplates: (projectPath: string) => Promise<unknown[]>
       loadStepTemplates: (projectPath: string) => Promise<unknown[]>
       loadUserTemplates: (projectPath: string) => Promise<unknown[]>

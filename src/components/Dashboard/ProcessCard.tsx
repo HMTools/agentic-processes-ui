@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import type { ProcessSummary, ProcessInstance } from '../../types'
 import { getStatusColor, getStatusBgColor, formatRelativeTime, getProgressPercentage } from '../../services/processService'
 import { LazyPromptButton } from '../LazyPromptButton'
+import { ConfirmationModal } from '../ConfirmationModal'
+import { useToast } from '../Toast'
 
 interface ProcessCardProps {
   process: ProcessSummary
@@ -10,9 +13,27 @@ interface ProcessCardProps {
 }
 
 export function ProcessCard({ process, fullProcess, onClick, isSelected }: ProcessCardProps) {
-  const progress = fullProcess ? getProgressPercentage(fullProcess) : 
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const { showToast } = useToast()
+
+  const progress = fullProcess ? getProgressPercentage(fullProcess) :
     Math.round((process.currentStep / process.totalSteps) * 100)
-  
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    const result = await window.electronAPI.deleteProcessInstance(process.path)
+
+    if (result.success) {
+      showToast('Process deleted successfully', 'success')
+      setShowDeleteConfirm(false)
+    } else {
+      showToast(result.error || 'Failed to delete process', 'error')
+      setDeleting(false)
+      setShowDeleteConfirm(false)
+    }
+  }
+
   return (
     <div
       onClick={onClick}
@@ -68,15 +89,39 @@ export function ProcessCard({ process, fullProcess, onClick, isSelected }: Proce
         </span>
         <div className="flex items-center gap-2">
           {fullProcess && (
-            <LazyPromptButton 
+            <LazyPromptButton
               process={fullProcess}
               processPath={process.path}
               variant="icon-only"
             />
           )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              setShowDeleteConfirm(true)
+            }}
+            className="p-1 rounded hover:bg-status-failed/20 text-text-muted hover:text-status-failed transition-colors"
+            title="Delete process"
+          >
+            <TrashIcon className="w-3.5 h-3.5" />
+          </button>
           <span>{formatRelativeTime(process.lastUpdated)}</span>
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteConfirm}
+        title="Delete Process"
+        message={`Are you sure you want to delete "${process.name}"? This will permanently remove all process data and cannot be undone.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   )
 }
@@ -96,8 +141,17 @@ function StatusBadge({ status }: { status: string }) {
 function FolderIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
         d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+    </svg>
+  )
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
     </svg>
   )
 }

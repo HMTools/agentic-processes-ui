@@ -20,7 +20,7 @@ interface SettingsProps {
 const AGENT_TYPES: { value: AgentType; label: string; available: boolean }[] = [
   { value: 'cursor', label: 'Cursor Agent', available: true },
   { value: 'github-copilot', label: 'GitHub Copilot', available: false },
-  { value: 'claude-code', label: 'Claude Code', available: false }
+  { value: 'claude-code', label: 'Claude Code', available: true }
 ]
 
 export function Settings({ 

@@ -3,6 +3,7 @@ import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
 import { platform } from 'os'
 import { execSync } from 'child_process'
+import { existsSync } from 'fs'
 
 // ============================================================================
 // Types
@@ -170,8 +171,8 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   'claude-code': {
     command: 'claude',
     args: [],
-    processAttachCommand: (_path: string) => '', // Future implementation
-    available: false,
+    processAttachCommand: (path: string) => `/process-continue ${path}`,
+    available: true,
     displayName: 'Claude Code'
   }
 }
@@ -239,12 +240,36 @@ class AgentSessionManager extends EventEmitter {
         ? getWindowsEnvWithCursorPath(baseEnv)  // Add cursor-agent to PATH
         : { ...baseEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor' }
 
+      // Resolve working directory - auto-fix if metadata.projectPath is stale (e.g. from another machine)
+      let resolvedCwd = workingDirectory
+      if (!existsSync(resolvedCwd)) {
+        if (processPath) {
+          const normalized = processPath.replace(/\\/g, '/')
+          const userProcessIdx = normalized.indexOf('/.user-processes/')
+          const processIdx = normalized.indexOf('/.processes/')
+          const idx = userProcessIdx !== -1 ? userProcessIdx : processIdx
+          if (idx !== -1) {
+            const derived = processPath.substring(0, idx)
+            if (existsSync(derived)) {
+              resolvedCwd = derived
+            }
+          }
+        }
+        if (!existsSync(resolvedCwd)) {
+          throw new Error(
+            `Working directory does not exist: "${workingDirectory}". ` +
+            `The process may have been created on a different machine. ` +
+            `Please update the projectPath in the process.json file.`
+          )
+        }
+      }
+
       // Spawn the PTY process
       const pty = spawn(this.shell, [], {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
-        cwd: workingDirectory,
+        cwd: resolvedCwd,
         env: envOptions,
         useConpty: isWindows  // Use Windows ConPTY for better compatibility
       })
@@ -295,9 +320,14 @@ class AgentSessionManager extends EventEmitter {
       // Use \r for shell command (cmd.exe/bash expects \r as Enter)
       pty.write(`${agentCommand}\r`)
 
-      // Wait for agent to be ready before marking as running
-      // The agent needs time to initialize before it can receive prompts
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      // Wait for agent to be ready by detecting its output
+      // Claude Code shows "? for shortcuts" when ready for input
+      // Use a generous timeout (30s) since first launch can be slow
+      const readyPattern = /[?>]\s*(for shortcuts|$)/
+      await this.waitForOutput(sessionId, readyPattern, 30000)
+
+      // Small additional delay to ensure the input is truly ready
+      await new Promise(resolve => setTimeout(resolve, 500))
 
       session.status = 'running'
       this.emit('status', {

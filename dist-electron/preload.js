@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // File content watching (hot reload)
   watchFile: (filePath) => ipcRenderer.invoke("watch-file", filePath),
   unwatchFile: (filePath) => ipcRenderer.invoke("unwatch-file", filePath),
+  // Process instance management
+  deleteProcessInstance: (processPath) => ipcRenderer.invoke("delete-process-instance", processPath),
   // Template loading (framework templates from .processes/)
   loadProcessTemplates: (projectPath) => ipcRenderer.invoke("load-process-templates", projectPath),
   loadStepTemplates: (projectPath) => ipcRenderer.invoke("load-step-templates", projectPath),

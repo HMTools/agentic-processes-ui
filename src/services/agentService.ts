@@ -19,8 +19,8 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   },
   'claude-code': {
     command: 'claude',
-    processAttachCommand: (_path: string) => '', // Future implementation
-    available: false,
+    processAttachCommand: (path: string) => `/process-continue ${path}`,
+    available: true,
     displayName: 'Claude Code'
   }
 }

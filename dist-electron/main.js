@@ -1,7 +1,7 @@
 import { ipcMain, dialog, clipboard, BrowserWindow, app, Menu } from "electron";
 import { join, dirname, extname } from "path";
 import { fileURLToPath } from "url";
-import { mkdir, readFile, readdir, stat } from "fs/promises";
+import { mkdir, readFile, readdir, stat, rm } from "fs/promises";
 import { existsSync } from "fs";
 import { watch } from "chokidar";
 import { spawn } from "node-pty";
@@ -199,9 +199,8 @@ const AGENT_CONFIGS = {
   "claude-code": {
     command: "claude",
     args: [],
-    processAttachCommand: (_path) => "",
-    // Future implementation
-    available: false,
+    processAttachCommand: (path) => `/process-continue ${path}`,
+    available: true,
     displayName: "Claude Code"
   }
 };
@@ -243,11 +242,31 @@ class AgentSessionManager extends EventEmitter {
       const isWindows = platform() === "win32";
       const baseEnv = isWindows ? getFreshWindowsEnv() : process.env;
       const envOptions = isWindows ? getWindowsEnvWithCursorPath(baseEnv) : { ...baseEnv, TERM: "xterm-256color", COLORTERM: "truecolor" };
+      let resolvedCwd = workingDirectory;
+      if (!existsSync(resolvedCwd)) {
+        if (processPath) {
+          const normalized = processPath.replace(/\\/g, "/");
+          const userProcessIdx = normalized.indexOf("/.user-processes/");
+          const processIdx = normalized.indexOf("/.processes/");
+          const idx = userProcessIdx !== -1 ? userProcessIdx : processIdx;
+          if (idx !== -1) {
+            const derived = processPath.substring(0, idx);
+            if (existsSync(derived)) {
+              resolvedCwd = derived;
+            }
+          }
+        }
+        if (!existsSync(resolvedCwd)) {
+          throw new Error(
+            `Working directory does not exist: "${workingDirectory}". The process may have been created on a different machine. Please update the projectPath in the process.json file.`
+          );
+        }
+      }
       const pty = spawn(this.shell, [], {
         name: "xterm-256color",
         cols: 120,
         rows: 30,
-        cwd: workingDirectory,
+        cwd: resolvedCwd,
         env: envOptions,
         useConpty: isWindows
         // Use Windows ConPTY for better compatibility
@@ -282,7 +301,9 @@ class AgentSessionManager extends EventEmitter {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const agentCommand = config.args?.length ? `${config.command} ${config.args.join(" ")}` : config.command;
       pty.write(`${agentCommand}\r`);
-      await new Promise((resolve) => setTimeout(resolve, 2e3));
+      const readyPattern = /[?>]\s*(for shortcuts|$)/;
+      await this.waitForOutput(sessionId, readyPattern, 3e4);
+      await new Promise((resolve) => setTimeout(resolve, 500));
       session.status = "running";
       this.emit("status", {
         sessionId,
@@ -729,6 +750,26 @@ ipcMain.handle("unwatch-file", (_event, filePath) => {
     console.log(`Stopped watching file: ${filePath}`);
   }
   return true;
+});
+ipcMain.handle("delete-process-instance", async (_event, processPath) => {
+  try {
+    const processDir = dirname(processPath);
+    if (!processDir.includes(".user-processes")) {
+      return { success: false, error: "Invalid path: not in .user-processes" };
+    }
+    if (!existsSync(processDir)) {
+      return { success: false, error: "Process directory not found" };
+    }
+    await rm(processDir, { recursive: true, force: true });
+    console.log(`Deleted process directory: ${processDir}`);
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting process instance:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
 });
 ipcMain.handle("load-process-templates", async (_event, projectPath) => {
   try {
