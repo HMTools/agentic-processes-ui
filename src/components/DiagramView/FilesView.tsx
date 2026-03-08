@@ -12,10 +12,19 @@ const isElectron = () => {
   return typeof window !== 'undefined' && window.electronAPI !== undefined
 }
 
+const FRAMEWORK_FILES = new Set([
+  'process.json',
+  'process.md',
+  'log.json',
+  'memory.json',
+  'pending-interaction.json',
+])
+
 export function FilesView({ processPath, loading }: FilesViewProps) {
   const [files, setFiles] = useState<ProcessFile[]>([])
   const [filesLoading, setFilesLoading] = useState(true)
   const [selectedFile, setSelectedFile] = useState<ProcessFile | null>(null)
+  const [frameworkExpanded, setFrameworkExpanded] = useState(false)
 
   // Load files list
   const loadFiles = useCallback(async () => {
@@ -68,18 +77,54 @@ export function FilesView({ processPath, loading }: FilesViewProps) {
     )
   }
 
+  const userFiles = files.filter(f => !FRAMEWORK_FILES.has(f.name))
+  const frameworkFiles = files.filter(f => FRAMEWORK_FILES.has(f.name))
+
   return (
     <>
       <div className="h-full overflow-auto p-4">
         <div className="space-y-2">
-          {files.map((file) => (
-            <FileCard 
-              key={file.path} 
-              file={file} 
+          {userFiles.length === 0 && frameworkFiles.length > 0 && (
+            <p className="px-1 pb-1 text-xs text-text-muted italic">No output files yet</p>
+          )}
+          {userFiles.map((file) => (
+            <FileCard
+              key={file.path}
+              file={file}
               onClick={() => setSelectedFile(file)}
             />
           ))}
         </div>
+
+        {frameworkFiles.length > 0 && (
+          <div className="mt-4">
+            <button
+              onClick={() => setFrameworkExpanded(e => !e)}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-text-muted uppercase tracking-wider cursor-pointer hover:text-text-secondary select-none w-full"
+            >
+              <svg
+                className={`w-3 h-3 transition-transform ${frameworkExpanded ? 'rotate-90' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              Framework Files ({frameworkFiles.length})
+            </button>
+            {frameworkExpanded && (
+              <div className="space-y-2 mt-1">
+                {frameworkFiles.map((file) => (
+                  <FileCard
+                    key={file.path}
+                    file={file}
+                    onClick={() => setSelectedFile(file)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {selectedFile && (

@@ -49,6 +49,7 @@ async function createFileWatcher(projectPath, callback, onError) {
     if (normalized.endsWith("/process.json")) return "process";
     if (normalized.endsWith("/memory.json")) return "memory";
     if (normalized.endsWith("/log.json")) return "log";
+    if (normalized.endsWith("/pending-interaction.json")) return "pending-interaction";
     return null;
   };
   const getProcessPath = (filePath) => {
@@ -615,6 +616,13 @@ ipcMain.handle("start-watching", async (_event, projectPath) => {
               event,
               processPath: data.processPath,
               log: data.content
+            });
+            break;
+          case "pending-interaction":
+            mainWindow?.webContents.send("pending-interaction-update", {
+              event,
+              processPath: data.processPath,
+              pendingInteraction: data.content
             });
             break;
         }

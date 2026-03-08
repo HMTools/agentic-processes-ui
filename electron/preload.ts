@@ -20,6 +20,12 @@ export interface LogUpdateEvent {
   log?: unknown
 }
 
+export interface PendingInteractionUpdateEvent {
+  event: 'added' | 'changed' | 'removed'
+  processPath: string
+  pendingInteraction?: unknown
+}
+
 export interface FileContentUpdateEvent {
   filePath: string
   content: string | null
@@ -166,6 +172,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
   
+  onPendingInteractionUpdate: (callback: (event: PendingInteractionUpdateEvent) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: PendingInteractionUpdateEvent) => callback(data)
+    ipcRenderer.on('pending-interaction-update', subscription)
+    return () => {
+      ipcRenderer.removeListener('pending-interaction-update', subscription)
+    }
+  },
+
   onWatcherError: (callback: (event: WatcherErrorEvent) => void) => {
     const subscription = (_event: Electron.IpcRendererEvent, data: WatcherErrorEvent) => callback(data)
     ipcRenderer.on('watcher-error', subscription)
@@ -276,6 +290,7 @@ declare global {
       onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => () => void
       onMemoryUpdate: (callback: (event: MemoryUpdateEvent) => void) => () => void
       onLogUpdate: (callback: (event: LogUpdateEvent) => void) => () => void
+      onPendingInteractionUpdate: (callback: (event: PendingInteractionUpdateEvent) => void) => () => void
       onFileContentUpdate: (callback: (event: FileContentUpdateEvent) => void) => () => void
       onWatcherError: (callback: (event: WatcherErrorEvent) => void) => () => void
       // Clipboard API

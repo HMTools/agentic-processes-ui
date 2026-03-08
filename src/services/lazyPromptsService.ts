@@ -1,4 +1,4 @@
-import type { ProcessInstance, LazyPromptType, LazyPromptConfig, InteractionOption } from '../types'
+import type { ProcessInstance, LazyPromptType, LazyPromptConfig, InteractionOption, PendingInteractionFile } from '../types'
 import * as agentService from './agentService'
 
 // Available lazy prompt configurations
@@ -33,10 +33,20 @@ export const LAZY_PROMPT_CONFIGS: Record<LazyPromptType, LazyPromptConfig> = {
 }
 
 /**
- * Get the interaction options from the process-level pending interaction
+ * Get the interaction options by reading pending-interaction.json from the process folder.
+ * Returns null if the file does not exist or cannot be parsed.
+ * The processPath parameter must be the absolute path to the process folder.
  */
-export function getInteractionOptions(process: ProcessInstance): InteractionOption[] | null {
-  return process.pendingInteraction?.options ?? null
+export async function getInteractionOptions(processPath: string): Promise<InteractionOption[] | null> {
+  try {
+    const data = await window.electronAPI.readProcessFile(processPath, 'pending-interaction.json')
+    if (!data) return null
+    const parsed = data as PendingInteractionFile
+    if (parsed.type !== 'pending-interaction' || !Array.isArray(parsed.options)) return null
+    return parsed.options
+  } catch {
+    return null
+  }
 }
 
 /**

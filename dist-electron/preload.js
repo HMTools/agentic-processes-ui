@@ -55,6 +55,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeListener("file-content-update", subscription);
     };
   },
+  onPendingInteractionUpdate: (callback) => {
+    const subscription = (_event, data) => callback(data);
+    ipcRenderer.on("pending-interaction-update", subscription);
+    return () => {
+      ipcRenderer.removeListener("pending-interaction-update", subscription);
+    };
+  },
   onWatcherError: (callback) => {
     const subscription = (_event, data) => callback(data);
     ipcRenderer.on("watcher-error", subscription);

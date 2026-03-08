@@ -148,10 +148,17 @@ ipcMain.handle('start-watching', async (_event, projectPath: string) => {
             })
             break
           case 'log':
-            mainWindow?.webContents.send('log-update', { 
-              event, 
+            mainWindow?.webContents.send('log-update', {
+              event,
               processPath: data.processPath,
-              log: data.content 
+              log: data.content
+            })
+            break
+          case 'pending-interaction':
+            mainWindow?.webContents.send('pending-interaction-update', {
+              event,
+              processPath: data.processPath,
+              pendingInteraction: data.content
             })
             break
         }

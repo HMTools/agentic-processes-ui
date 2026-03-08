@@ -32,8 +32,29 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
   const modalRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
-  // Get interaction options from active step
-  const interactionOptions = useMemo(() => getInteractionOptions(process), [process])
+  // Get interaction options from pending-interaction.json (async file read)
+  const [interactionOptions, setInteractionOptions] = useState<InteractionOption[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    getInteractionOptions(processPath).then(options => {
+      if (!cancelled) setInteractionOptions(options)
+    })
+    return () => { cancelled = true }
+  }, [processPath])
+
+  // Subscribe to real-time pending-interaction.json changes while modal is open
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI?.onPendingInteractionUpdate) return
+    const unsubscribe = window.electronAPI.onPendingInteractionUpdate(({ event, processPath: updatedPath, pendingInteraction }) => {
+      if (updatedPath !== processPath) return
+      if (event === 'removed') {
+        setInteractionOptions(null)
+      } else {
+        getInteractionOptions(processPath).then(options => setInteractionOptions(options))
+      }
+    })
+    return unsubscribe
+  }, [processPath])
   const activeStep = useMemo(() => getActiveStep(process), [process])
   const hasOptions = interactionOptions && interactionOptions.length > 0
 

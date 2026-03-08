@@ -3,7 +3,7 @@ import { readFile, mkdir } from 'fs/promises'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 
-export type FileType = 'process' | 'memory' | 'log'
+export type FileType = 'process' | 'memory' | 'log' | 'pending-interaction'
 
 export type WatcherCallback = (
   event: 'added' | 'changed' | 'removed', 
@@ -70,6 +70,7 @@ export async function createFileWatcher(
     if (normalized.endsWith('/process.json')) return 'process'
     if (normalized.endsWith('/memory.json')) return 'memory'
     if (normalized.endsWith('/log.json')) return 'log'
+    if (normalized.endsWith('/pending-interaction.json')) return 'pending-interaction'
     return null
   }
 
