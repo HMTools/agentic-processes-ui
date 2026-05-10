@@ -9,9 +9,9 @@ import { TemplateDetail } from './TemplateDetail'
 const FAVORITES_FILTER = '__favorites__'
 
 interface TemplatesProps {
-  /** Path to the framework folder containing .processes/ */
+  /** @deprecated No longer used -- templates load from ~/.claude/agentic-processes/ */
   frameworkPath: string | null
-  /** Paths to project folders that may have .user-processes/templates/ */
+  /** Project folder paths (kept for API compat) */
   projectPaths: string[]
   onBack: () => void
   onUseTemplate?: (template: ProcessTemplate) => void
@@ -162,18 +162,18 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }
               </button>
             </div>
           </div>
-        ) : !frameworkPath && projectPaths.length === 0 ? (
+        ) : templateCount === 0 && !isLoading ? (
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="text-center max-w-md">
               <div className="w-12 h-12 rounded-full bg-surface-elevated flex items-center justify-center mx-auto mb-4">
                 <svg className="w-6 h-6 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
               </div>
-              <h3 className="text-sm font-medium text-text-primary mb-2">No Workspace Configured</h3>
+              <h3 className="text-sm font-medium text-text-primary mb-2">No Templates Found</h3>
               <p className="text-xs text-text-muted">
-                Add a framework or project folder to view templates
+                Run the install script to copy templates to ~/.claude/agentic-processes/
               </p>
             </div>
           </div>

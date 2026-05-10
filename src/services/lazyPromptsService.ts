@@ -41,9 +41,22 @@ export async function getInteractionOptions(processPath: string): Promise<Intera
   try {
     const data = await window.electronAPI.readProcessFile(processPath, 'pending-interaction.json')
     if (!data) return null
-    const parsed = data as PendingInteractionFile
-    if (parsed.type !== 'pending-interaction' || !Array.isArray(parsed.options)) return null
-    return parsed.options
+    const parsed = data as Record<string, unknown>
+    if (!Array.isArray(parsed.options) || parsed.options.length === 0) return null
+
+    if (parsed.type !== 'pending-interaction') {
+      console.warn(`pending-interaction.json has non-canonical type "${parsed.type}" (expected "pending-interaction")`)
+    }
+
+    // Normalize options: map "value" → "id" when id is missing (agents sometimes use "value" instead)
+    const options: InteractionOption[] = parsed.options.map((opt: Record<string, unknown>) => ({
+      id: (opt.id ?? opt.value ?? opt.label) as string,
+      label: opt.label as string,
+      description: opt.description as string | undefined,
+      isDefault: opt.isDefault as boolean | undefined
+    }))
+
+    return options
   } catch {
     return null
   }
@@ -64,22 +77,11 @@ export function generateSelectOptionPrompt(option: InteractionOption): string {
 }
 
 /**
- * Generate a continue process prompt with context
+ * Generate a continue process prompt with context.
+ * processPath is now absolute (under ~/.claude/agentic-processes/), so we pass it directly.
  */
-export function generateContinueProcessPrompt(process: ProcessInstance, processPath: string): string {
-  // Make path relative to project
-  const projectPath = process.metadata.projectPath
-  let relativePath = processPath
-  
-  if (projectPath && processPath.startsWith(projectPath)) {
-    relativePath = processPath.slice(projectPath.length)
-    // Remove leading slash/backslash
-    if (relativePath.startsWith('/') || relativePath.startsWith('\\')) {
-      relativePath = relativePath.slice(1)
-    }
-  }
-  
-  return `/process-continue ${relativePath}`
+export function generateContinueProcessPrompt(_process: ProcessInstance, processPath: string): string {
+  return `/process-continue ${processPath}`
 }
 
 /**

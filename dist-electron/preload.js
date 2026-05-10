@@ -18,14 +18,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   unwatchFile: (filePath) => ipcRenderer.invoke("unwatch-file", filePath),
   // Process instance management
   deleteProcessInstance: (processPath) => ipcRenderer.invoke("delete-process-instance", processPath),
-  // Template loading (framework templates from .processes/)
-  loadProcessTemplates: (projectPath) => ipcRenderer.invoke("load-process-templates", projectPath),
-  loadStepTemplates: (projectPath) => ipcRenderer.invoke("load-step-templates", projectPath),
-  // User templates (project-specific from .user-processes/)
-  loadUserTemplates: (projectPath) => ipcRenderer.invoke("load-user-templates", projectPath),
-  loadUserSteps: (projectPath) => ipcRenderer.invoke("load-user-steps", projectPath),
-  // Folder detection (determine if folder has .processes/ and/or .user-processes/)
-  detectFolderType: (path) => ipcRenderer.invoke("detect-folder-type", path),
+  // Template loading (unified from ~/.claude/agentic-processes/)
+  loadProcessTemplates: () => ipcRenderer.invoke("load-process-templates"),
+  loadStepTemplates: () => ipcRenderer.invoke("load-step-templates"),
   // Event listeners
   onProcessUpdate: (callback) => {
     const subscription = (_event, data) => callback(data);
@@ -75,7 +70,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Get available agent types
   agentGetAvailable: () => ipcRenderer.invoke("agent:get-available"),
   // Create a new agent session
-  agentCreate: (agentType, workingDirectory, processPath) => ipcRenderer.invoke("agent:create", agentType, workingDirectory, processPath),
+  agentCreate: (agentType, workingDirectory, processPath, options) => ipcRenderer.invoke("agent:create", agentType, workingDirectory, processPath, options),
   // Attach session to a process
   agentAttach: (sessionId, processPath) => ipcRenderer.invoke("agent:attach", sessionId, processPath),
   // Send a prompt to the agent
@@ -92,6 +87,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   agentGet: (sessionId) => ipcRenderer.invoke("agent:get", sessionId),
   // Get sessions for a specific process
   agentGetForProcess: (processPath) => ipcRenderer.invoke("agent:get-for-process", processPath),
+  // External session discovery and migration
+  agentDiscoverExternal: (activeProcesses) => ipcRenderer.invoke("agent:discover-external", activeProcesses),
+  agentMigrateExternal: (externalSession, workingDirectory, options) => ipcRenderer.invoke("agent:migrate-external", externalSession, workingDirectory, options),
   // Terminal window management
   openTerminalWindow: (sessionId, processPath, processName) => ipcRenderer.invoke("agent:open-window", sessionId, processPath, processName),
   closeTerminalWindow: () => ipcRenderer.invoke("agent:close-window"),

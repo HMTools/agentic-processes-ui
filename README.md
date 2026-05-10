@@ -46,8 +46,8 @@ This creates a distributable package in the `release/` folder.
 
 ## Usage
 
-1. **Select Project**: Click the folder icon to select a project containing a `.user-processes` folder
-2. **View Processes**: The dashboard shows all processes found in `active/`, `completed/`, and `failed/` folders
+1. **Select Project**: Click the folder icon to add a project working directory
+2. **View Processes**: The dashboard shows all processes found in `~/.claude/agentic-processes/active/`, `completed/`, and `failed/` folders
 3. **Filter**: Use the tabs to filter by status (All, Active, Completed, Failed)
 4. **View Diagram**: Click on a process card to see the interactive step diagram
 5. **Step Details**: Click on a step node in the diagram to see detailed information
@@ -57,15 +57,15 @@ This creates a distributable package in the `release/` folder.
 The UI reads exclusively from `process.json` files located in:
 
 ```
-.user-processes/
+~/.claude/agentic-processes/
 ├── active/
-│   └── process-{name}-{date}/
-│       └── process.json        ← Primary data source
+│   └── process-{name}-{date}-{shortid}/
+│       └── process.json        <- Primary data source
 ├── completed/
-│   └── process-{name}-{date}/
+│   └── process-{name}-{date}-{shortid}/
 │       └── process.json
 └── failed/
-    └── process-{name}-{date}/
+    └── process-{name}-{date}-{shortid}/
         └── process.json
 ```
 

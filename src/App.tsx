@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useProcesses } from './hooks/useProcesses'
 import { useSettingsState, SettingsContext } from './hooks/useSettings'
 import { useTemplates } from './hooks/useTemplates'
@@ -8,6 +8,7 @@ import { DiagramView } from './components/DiagramView'
 import { Settings } from './components/Settings'
 import { Templates } from './components/Templates'
 import { AgentSessions } from './components/AgentSessions'
+import { ProcessesOverview } from './components/ProcessesOverview'
 import { NewProcessModal } from './components/NewProcessModal'
 import { Sidebar } from './components/Layout/Sidebar'
 import { WelcomeScreen } from './components/Layout/WelcomeScreen'
@@ -16,7 +17,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { ErrorDisplay } from './components/ErrorDisplay'
 import type { ProcessTemplate } from './types'
 
-type AppView = 'dashboard' | 'settings' | 'templates' | 'agent-sessions'
+type AppView = 'dashboard' | 'settings' | 'templates' | 'agent-sessions' | 'processes-overview'
 
 function App() {
   const settingsState = useSettingsState()
@@ -51,11 +52,61 @@ function App() {
   // Templates now load from framework + all project folders
   const { processTemplates } = useTemplates(frameworkPath, projectPaths)
 
-  // Track running agent sessions for the sidebar badge
-  const { sessions: allAgentSessions } = useAgentSessions()
+  // Track running agent sessions for the sidebar badge + external session discovery
+  const {
+    sessions: allAgentSessions,
+    externalSessions,
+    discoverExternal,
+    migrateSession
+  } = useAgentSessions()
   const runningSessionCount = allAgentSessions.filter(
     s => s.status === 'running' || s.status === 'starting'
   ).length
+
+  // Periodically discover external Claude Code sessions
+  // Use refs to avoid re-triggering the interval on every render
+  const activeProcessesRef = useRef(activeProcesses)
+  const getProcessRef = useRef(getProcess)
+  const discoverExternalRef = useRef(discoverExternal)
+  activeProcessesRef.current = activeProcesses
+  getProcessRef.current = getProcess
+  discoverExternalRef.current = discoverExternal
+
+  const hasActiveProcesses = activeProcesses.length > 0
+
+  useEffect(() => {
+    if (!hasActiveProcesses) return
+
+    const doDiscover = () => {
+      const procs = activeProcessesRef.current
+      const getProc = getProcessRef.current
+      const discover = discoverExternalRef.current
+
+      // Pass all active processes — the main process reads .session files
+      // from disk to get the real Claude Code session IDs
+      const activeProcessInfos = procs.map(p => {
+        const full = getProc(p.path)
+        return {
+          path: p.path,
+          projectPaths: full?.metadata?.projectPaths || (full?.metadata?.projectPath ? [full.metadata.projectPath] : undefined)
+        }
+      })
+      if (activeProcessInfos.length > 0) {
+        discover(activeProcessInfos)
+      }
+    }
+
+    doDiscover()
+    const interval = setInterval(doDiscover, 15000)
+    return () => clearInterval(interval)
+  }, [hasActiveProcesses])
+
+  // Handle session migration from Dashboard
+  const handleMigrateSession = useCallback((processPath: string) => {
+    const full = getProcess(processPath)
+    const workDir = full?.metadata?.projectPaths?.[0] || full?.metadata?.projectPath || projectPaths[0] || ''
+    migrateSession(processPath, workDir, { permissionMode: settingsState.settings.agent.permissionMode })
+  }, [getProcess, projectPaths, migrateSession, settingsState.settings.agent.permissionMode])
 
   const [currentView, setCurrentView] = useState<AppView>('dashboard')
   const [selectedProcessPath, setSelectedProcessPath] = useState<string | null>(null)
@@ -98,6 +149,12 @@ function App() {
 
   const handleNavigateToAgentSessions = useCallback(() => {
     setCurrentView('agent-sessions')
+    setSelectedProcessPath(null)
+    setNavigatedFromPath(null)
+  }, [])
+
+  const handleNavigateToProcessesOverview = useCallback(() => {
+    setCurrentView('processes-overview')
     setSelectedProcessPath(null)
     setNavigatedFromPath(null)
   }, [])
@@ -157,6 +214,14 @@ function App() {
           onNavigateToDashboard={handleNavigateToDashboard}
           onNavigateToTemplates={handleNavigateToTemplates}
           onNavigateToAgentSessions={handleNavigateToAgentSessions}
+          onNavigateToProcessesOverview={handleNavigateToProcessesOverview}
+          attentionCount={activeProcesses.filter(p => {
+            const full = getProcess(p.path)
+            if (!full) return false
+            return full.status === 'failed' || full.status === 'paused' ||
+              full.steps.some(s => s.status === 'awaiting_approval') ||
+              full.steps.some(s => s.status === 'in_progress' && s.approvalRequired)
+          }).length}
         />
 
         {/* Main content */}
@@ -177,6 +242,13 @@ function App() {
                 projectPaths={projectPaths}
                 onBack={handleNavigateToDashboard}
                 onUseTemplate={handleUseTemplate}
+              />
+            ) : currentView === 'processes-overview' ? (
+              <ProcessesOverview
+                processes={processes}
+                getProcess={getProcess}
+                onNavigateToProcess={handleNavigateToProcess}
+                onNewProcess={projectPaths.length > 0 ? handleOpenNewProcess : undefined}
               />
             ) : currentView === 'agent-sessions' ? (
               <AgentSessions
@@ -207,6 +279,11 @@ function App() {
                 onNavigateToProcess={handleNavigateToProcess}
                 getProcess={getProcess}
                 navigatedFromPath={navigatedFromPath}
+                externalSession={selectedProcessPath ? externalSessions[selectedProcessPath] || null : null}
+                onMigrateSession={selectedProcessPath && externalSessions[selectedProcessPath]
+                  ? async () => { await migrateSession(selectedProcessPath, selectedProcess.metadata.projectPaths?.[0] || selectedProcess.metadata.projectPath || projectPaths[0] || '', { permissionMode: settingsState.settings.agent.permissionMode }) }
+                  : undefined
+                }
               />
             ) : (
               <Dashboard
@@ -219,6 +296,8 @@ function App() {
                 getProcess={getProcess}
                 processErrors={processErrors}
                 onNewProcess={projectPaths.length > 0 ? handleOpenNewProcess : undefined}
+                externalSessions={externalSessions}
+                onMigrateSession={handleMigrateSession}
               />
             )}
           </ErrorBoundary>

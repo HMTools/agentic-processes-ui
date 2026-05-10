@@ -18,9 +18,9 @@ interface SettingsProps {
 
 // Available agent types for the dropdown
 const AGENT_TYPES: { value: AgentType; label: string; available: boolean }[] = [
-  { value: 'cursor', label: 'Cursor Agent', available: true },
-  { value: 'github-copilot', label: 'GitHub Copilot', available: false },
-  { value: 'claude-code', label: 'Claude Code', available: true }
+  { value: 'claude-code', label: 'Claude Code', available: true },
+  { value: 'cursor', label: 'Cursor Agent', available: false },
+  { value: 'github-copilot', label: 'GitHub Copilot', available: false }
 ]
 
 export function Settings({ 
@@ -169,45 +169,6 @@ export function Settings({
               </div>
               
               <div className="p-4 space-y-4">
-                {/* Framework Path */}
-                <div>
-                  <label className="text-sm font-medium text-text-primary block mb-1">
-                    Framework Folder
-                  </label>
-                  <p className="text-xs text-text-muted mb-2">
-                    Contains <code className="px-1 py-0.5 bg-background rounded text-accent font-mono text-[10px]">.processes/</code> with templates and step definitions
-                  </p>
-                  {frameworkPath ? (
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-secondary font-mono truncate">
-                        {frameworkPath}
-                      </div>
-                      {onChangeFramework && (
-                        <button
-                          onClick={onChangeFramework}
-                          className="px-3 py-2 text-sm text-text-secondary hover:text-text-primary bg-surface-elevated border border-border rounded-lg hover:border-accent/50 transition-colors"
-                        >
-                          Change
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-muted italic">
-                        No framework folder configured
-                      </div>
-                      {onSelectFolder && (
-                        <button
-                          onClick={onSelectFolder}
-                          className="px-3 py-2 text-sm bg-accent text-background rounded-lg hover:bg-accent/90 transition-colors"
-                        >
-                          Add
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
                 {/* Project Paths */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -227,7 +188,7 @@ export function Settings({
                     )}
                   </div>
                   <p className="text-xs text-text-muted mb-2">
-                    Contains <code className="px-1 py-0.5 bg-background rounded text-accent font-mono text-[10px]">.user-processes/</code> with your processes
+                    Working directories for agent sessions. Processes are stored in <code className="px-1 py-0.5 bg-background rounded text-accent font-mono text-[10px]">~/.claude/agentic-processes/</code>
                   </p>
                   {projectPaths.length > 0 ? (
                     <div className="space-y-2">
@@ -319,6 +280,48 @@ export function Settings({
                   checked={settings.agent.autoAttach}
                   onChange={(checked) => updateAgentSettings({ autoAttach: checked })}
                 />
+              </div>
+
+              {/* Permission Mode */}
+              <div>
+                <label className="text-sm font-medium text-text-primary block mb-1">
+                  Permission Mode
+                </label>
+                <p className="text-xs text-text-muted mb-3">
+                  Controls how Claude Code handles tool permission prompts
+                </p>
+                <div className="space-y-2">
+                  <RadioOption
+                    id="permission-regular"
+                    name="permission-mode"
+                    value="regular"
+                    checked={settings.agent.permissionMode === 'regular'}
+                    onChange={() => updateAgentSettings({ permissionMode: 'regular' })}
+                    label="Regular"
+                    description="Standard permission prompts for each tool use"
+                    icon={
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                    }
+                  />
+                  <RadioOption
+                    id="permission-allow-all"
+                    name="permission-mode"
+                    value="allow-all"
+                    checked={settings.agent.permissionMode === 'allow-all'}
+                    onChange={() => updateAgentSettings({ permissionMode: 'allow-all' })}
+                    label="Allow All"
+                    description="Skip all permission prompts (--dangerously-skip-permissions). Use with caution."
+                    icon={
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    }
+                  />
+                </div>
               </div>
 
               {/* Terminal Font Size */}

@@ -6,13 +6,15 @@ import type { ProcessInstance } from '../../types'
 interface LazyPromptButtonProps {
   process: ProcessInstance
   processPath: string
+  projectPath: string
   variant?: 'default' | 'compact' | 'icon-only'
   className?: string
 }
 
-export function LazyPromptButton({ 
-  process, 
-  processPath, 
+export function LazyPromptButton({
+  process,
+  processPath,
+  projectPath,
   variant = 'default',
   className = ''
 }: LazyPromptButtonProps) {
@@ -73,6 +75,7 @@ export function LazyPromptButton({
         <LazyPromptModal
           process={process}
           processPath={processPath}
+          projectPath={projectPath}
           onClose={handleCloseModal}
         />
       )}

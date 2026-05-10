@@ -89,8 +89,9 @@ export function formatCategoryName(category: string): string {
 // Get step reference display name
 export function getStepRefDisplayName(stepRef: string): string {
   if (!stepRef) return ''
-  // Format: @framework-step:category/step-name -> Step Name
-  const match = stepRef.match(/@framework-step:[\w-]+\/([\w-]+)/)
+  // Format: @step:category/step-name -> Step Name
+  // Also handles legacy @framework-step: and @user-step: for backward compat
+  const match = stepRef.match(/@(?:step|framework-step|user-step):[\w-]+\/([\w-]+)/)
   if (match) {
     return match[1]
       .split('-')
@@ -102,7 +103,8 @@ export function getStepRefDisplayName(stepRef: string): string {
 
 // Parse step reference to get category and name
 export function parseStepRef(stepRef: string): { category: string; name: string } | null {
-  const match = stepRef.match(/@framework-step:([\w-]+)\/([\w-]+)/)
+  // Handles @step:, @framework-step:, @user-step: for backward compat
+  const match = stepRef.match(/@(?:step|framework-step|user-step):([\w-]+)\/([\w-]+)/)
   if (match) {
     return {
       category: match[1],

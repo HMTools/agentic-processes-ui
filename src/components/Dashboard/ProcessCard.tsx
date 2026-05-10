@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ProcessSummary, ProcessInstance } from '../../types'
+import type { ProcessSummary, ProcessInstance, ExternalSession } from '../../types'
 import { getStatusColor, getStatusBgColor, formatRelativeTime, getProgressPercentage } from '../../services/processService'
 import { LazyPromptButton } from '../LazyPromptButton'
 import { ConfirmationModal } from '../ConfirmationModal'
@@ -10,9 +10,11 @@ interface ProcessCardProps {
   fullProcess?: ProcessInstance
   onClick: () => void
   isSelected?: boolean
+  externalSession?: ExternalSession | null
+  onMigrateSession?: () => void
 }
 
-export function ProcessCard({ process, fullProcess, onClick, isSelected }: ProcessCardProps) {
+export function ProcessCard({ process, fullProcess, onClick, isSelected, externalSession, onMigrateSession }: ProcessCardProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const { showToast } = useToast()
@@ -55,8 +57,31 @@ export function ProcessCard({ process, fullProcess, onClick, isSelected }: Proce
             {process.template}
           </p>
         </div>
-        <StatusBadge status={process.status} />
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <StatusBadge status={process.status} />
+          {externalSession && (
+            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+              External
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* External session migration */}
+      {externalSession && onMigrateSession && (
+        <div className="flex items-center gap-2 mb-3 p-2 rounded-md bg-yellow-500/10 border border-yellow-500/20">
+          <span className="text-xs text-yellow-400 flex-1">
+            External session detected{externalSession.pid > 0 ? ` (PID: ${externalSession.pid})` : ''}
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onMigrateSession() }}
+            className="px-2 py-0.5 text-xs font-medium rounded bg-accent/20 text-accent border border-accent/30 hover:bg-accent/30 transition-colors"
+            title="Kill external process and resume in this app"
+          >
+            Migrate
+          </button>
+        </div>
+      )}
 
       {/* Progress bar */}
       <div className="mb-3">
@@ -92,6 +117,7 @@ export function ProcessCard({ process, fullProcess, onClick, isSelected }: Proce
             <LazyPromptButton
               process={fullProcess}
               processPath={process.path}
+              projectPath={fullProcess.metadata.projectPaths?.[0] || fullProcess.metadata.projectPath || ''}
               variant="icon-only"
             />
           )}

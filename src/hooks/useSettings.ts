@@ -9,9 +9,10 @@ const DEFAULT_SETTINGS: AppSettings = {
     defaultAction: 'clipboard'
   },
   agent: {
-    defaultAgentType: 'cursor',
+    defaultAgentType: 'claude-code',
     autoAttach: false,
-    terminalFontSize: 14
+    terminalFontSize: 14,
+    permissionMode: 'regular'
   },
   workspace: {
     frameworkPath: null,
@@ -26,7 +27,7 @@ function loadSettings(): AppSettings {
     if (stored) {
       const parsed = JSON.parse(stored)
       // Merge with defaults to ensure all fields exist
-      return {
+      const merged = {
         ...DEFAULT_SETTINGS,
         ...parsed,
         lazyPrompts: {
@@ -42,6 +43,11 @@ function loadSettings(): AppSettings {
           ...parsed.workspace
         }
       }
+      // Migrate stale agent type (e.g. 'cursor' is no longer available)
+      if (merged.agent.defaultAgentType === 'cursor') {
+        merged.agent.defaultAgentType = DEFAULT_SETTINGS.agent.defaultAgentType
+      }
+      return merged
     }
   } catch (error) {
     console.error('Failed to load settings:', error)

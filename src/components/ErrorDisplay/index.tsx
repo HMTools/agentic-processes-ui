@@ -77,7 +77,7 @@ export function ErrorDisplay({
               Troubleshooting Tips
             </label>
             <ul className="text-sm text-text-secondary space-y-2 list-disc list-inside">
-              <li>The <code className="text-accent">.user-processes</code> directory structure will be created automatically if it doesn't exist</li>
+              <li>The <code className="text-accent">~/.claude/agentic-processes</code> directory structure will be created automatically if it doesn't exist</li>
               <li>Verify you have write permissions for the selected folders</li>
               <li>Check that the paths are valid and accessible</li>
               <li>Try adding a different project folder</li>

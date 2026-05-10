@@ -13,7 +13,7 @@ export type StepId = string
 /** ISO 8601 timestamp string */
 export type ISOTimestamp = string
 
-/** Relative path to a process directory from the project root */
+/** Absolute path to a process directory under ~/.claude/agentic-processes/ */
 export type ProcessPath = string
 
 /** Reference to a step definition */
@@ -39,8 +39,12 @@ export interface ProcessMetadata {
   templateCategory?: string
   created: ISOTimestamp
   lastUpdated: ISOTimestamp
+  projectPaths?: string[]
+  /** @deprecated Use projectPaths instead */
   projectPath?: string
   processPath?: ProcessPath
+  /** Claude Code session ID — used by hooks and for session migration */
+  sessionId?: string
 }
 
 export interface ProcessCurrentState {
@@ -245,6 +249,27 @@ export interface AgentSession {
   workingDirectory: string
 }
 
+// ============================================================================
+// External session migration types
+// ============================================================================
+
+/** An external Claude Code process detected via OS process scanning */
+export interface ExternalSession {
+  /** OS process ID of the external claude process */
+  pid: number
+  /** Command line of the external process */
+  commandLine: string
+  /** The sessionId from process.json metadata that this external process corresponds to */
+  claudeSessionId: string
+  /** The process.json path this external session is attached to */
+  processPath: string
+  /** Working directory of the external process (if detectable) */
+  workingDirectory?: string
+}
+
+/** Migration status for tracking the multi-step migration flow */
+export type MigrationStatus = 'idle' | 'killing' | 'spawning' | 'resuming' | 'complete' | 'error'
+
 /** Agent-related settings */
 export interface AgentSettings {
   /** Default agent type to use when starting a new session */
@@ -253,26 +278,20 @@ export interface AgentSettings {
   autoAttach: boolean
   /** Terminal font size in pixels */
   terminalFontSize: number
+  /** Permission mode for Claude Code sessions */
+  permissionMode: 'regular' | 'allow-all'
 }
 
 // ============================================================================
 // Workspace types
 // ============================================================================
 
-/** Configuration for multi-workspace setup */
+/** Configuration for workspace setup */
 export interface WorkspaceConfig {
-  /** Path to the framework repo (agentic-processes/) containing .processes/ */
+  /** @deprecated No longer used — templates/steps load from ~/.claude/agentic-processes/ */
   frameworkPath: string | null
-  /** Paths to client project repos, each containing .user-processes/ */
+  /** Paths to project repos (used as working directories for agent sessions) */
   projectPaths: string[]
-}
-
-/** Result of detecting what a folder contains */
-export interface FolderDetectionResult {
-  /** Whether the folder contains .processes/ (framework) */
-  hasProcesses: boolean
-  /** Whether the folder contains .user-processes/ (project) */
-  hasUserProcesses: boolean
 }
 
 // ============================================================================

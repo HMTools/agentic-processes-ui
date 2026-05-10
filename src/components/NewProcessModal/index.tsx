@@ -194,7 +194,7 @@ export function NewProcessModal({
             <h3 className="text-lg font-semibold text-text-primary mb-2">No Project Folder</h3>
             <p className="text-sm text-text-muted mb-6">
               Add a project folder first to create processes. The project folder should contain (or will have)
-              a <code className="px-1 py-0.5 bg-surface rounded text-accent font-mono text-xs">.user-processes</code> directory.
+              processes will be created in <code className="px-1 py-0.5 bg-surface rounded text-accent font-mono text-xs">~/.claude/agentic-processes/</code>.
             </p>
             <button
               onClick={onClose}

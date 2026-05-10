@@ -91,6 +91,20 @@ export interface AgentResult<T = void> {
   sessions?: AgentSession[]
 }
 
+export interface ExternalSession {
+  pid: number
+  commandLine: string
+  claudeSessionId: string
+  processPath: string
+  workingDirectory?: string
+}
+
+export interface ActiveProcessInfo {
+  path: string
+  sessionId?: string
+  projectPaths?: string[]
+}
+
 // Expose protected methods to renderer
 contextBridge.exposeInMainWorld('electronAPI', {
   // Project selection
@@ -123,21 +137,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteProcessInstance: (processPath: string) =>
     ipcRenderer.invoke('delete-process-instance', processPath) as Promise<{ success: boolean; error?: string }>,
 
-  // Template loading (framework templates from .processes/)
-  loadProcessTemplates: (projectPath: string) =>
-    ipcRenderer.invoke('load-process-templates', projectPath),
-  loadStepTemplates: (projectPath: string) =>
-    ipcRenderer.invoke('load-step-templates', projectPath),
-  
-  // User templates (project-specific from .user-processes/)
-  loadUserTemplates: (projectPath: string) =>
-    ipcRenderer.invoke('load-user-templates', projectPath),
-  loadUserSteps: (projectPath: string) =>
-    ipcRenderer.invoke('load-user-steps', projectPath),
-  
-  // Folder detection (determine if folder has .processes/ and/or .user-processes/)
-  detectFolderType: (path: string) =>
-    ipcRenderer.invoke('detect-folder-type', path) as Promise<{ hasProcesses: boolean; hasUserProcesses: boolean }>,
+  // Template loading (unified from ~/.claude/agentic-processes/)
+  loadProcessTemplates: () =>
+    ipcRenderer.invoke('load-process-templates'),
+  loadStepTemplates: () =>
+    ipcRenderer.invoke('load-step-templates'),
   
   // Event listeners
   onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => {
@@ -197,8 +201,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('agent:get-available') as Promise<AgentAvailableType[]>,
   
   // Create a new agent session
-  agentCreate: (agentType: AgentType, workingDirectory: string, processPath?: string) =>
-    ipcRenderer.invoke('agent:create', agentType, workingDirectory, processPath) as Promise<AgentResult<AgentSession>>,
+  agentCreate: (agentType: AgentType, workingDirectory: string, processPath?: string, options?: { permissionMode?: string }) =>
+    ipcRenderer.invoke('agent:create', agentType, workingDirectory, processPath, options) as Promise<AgentResult<AgentSession>>,
   
   // Attach session to a process
   agentAttach: (sessionId: string, processPath: string) =>
@@ -232,6 +236,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentGetForProcess: (processPath: string) =>
     ipcRenderer.invoke('agent:get-for-process', processPath) as Promise<AgentResult & { sessions: AgentSession[] }>,
   
+  // External session discovery and migration
+  agentDiscoverExternal: (activeProcesses: ActiveProcessInfo[]) =>
+    ipcRenderer.invoke('agent:discover-external', activeProcesses) as Promise<{ success: boolean; sessions: Record<string, ExternalSession>; error?: string }>,
+
+  agentMigrateExternal: (externalSession: ExternalSession, workingDirectory: string, options?: { permissionMode?: string }) =>
+    ipcRenderer.invoke('agent:migrate-external', externalSession, workingDirectory, options) as Promise<AgentResult<AgentSession>>,
+
   // Terminal window management
   openTerminalWindow: (sessionId: string, processPath: string, processName: string) =>
     ipcRenderer.invoke('agent:open-window', sessionId, processPath, processName) as Promise<AgentResult>,
@@ -282,11 +293,8 @@ declare global {
       watchFile: (filePath: string) => Promise<boolean>
       unwatchFile: (filePath: string) => Promise<boolean>
       deleteProcessInstance: (processPath: string) => Promise<{ success: boolean; error?: string }>
-      loadProcessTemplates: (projectPath: string) => Promise<unknown[]>
-      loadStepTemplates: (projectPath: string) => Promise<unknown[]>
-      loadUserTemplates: (projectPath: string) => Promise<unknown[]>
-      loadUserSteps: (projectPath: string) => Promise<unknown[]>
-      detectFolderType: (path: string) => Promise<{ hasProcesses: boolean; hasUserProcesses: boolean }>
+      loadProcessTemplates: () => Promise<unknown[]>
+      loadStepTemplates: () => Promise<unknown[]>
       onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => () => void
       onMemoryUpdate: (callback: (event: MemoryUpdateEvent) => void) => () => void
       onLogUpdate: (callback: (event: LogUpdateEvent) => void) => () => void
@@ -298,7 +306,7 @@ declare global {
       clipboardWriteText: (text: string) => Promise<boolean>
       // Agent API
       agentGetAvailable: () => Promise<AgentAvailableType[]>
-      agentCreate: (agentType: AgentType, workingDirectory: string, processPath?: string) => Promise<AgentResult<AgentSession>>
+      agentCreate: (agentType: AgentType, workingDirectory: string, processPath?: string, options?: { permissionMode?: string }) => Promise<AgentResult<AgentSession>>
       agentAttach: (sessionId: string, processPath: string) => Promise<AgentResult>
       agentSendPrompt: (sessionId: string, prompt: string) => Promise<AgentResult>
       agentInput: (sessionId: string, data: string) => Promise<AgentResult>
@@ -307,6 +315,8 @@ declare global {
       agentList: () => Promise<AgentResult & { sessions: AgentSession[] }>
       agentGet: (sessionId: string) => Promise<AgentResult & { session: AgentSession | null }>
       agentGetForProcess: (processPath: string) => Promise<AgentResult & { sessions: AgentSession[] }>
+      agentDiscoverExternal: (activeProcesses: ActiveProcessInfo[]) => Promise<{ success: boolean; sessions: Record<string, ExternalSession>; error?: string }>
+      agentMigrateExternal: (externalSession: ExternalSession, workingDirectory: string, options?: { permissionMode?: string }) => Promise<AgentResult<AgentSession>>
       openTerminalWindow: (sessionId: string, processPath: string, processName: string) => Promise<AgentResult>
       closeTerminalWindow: () => Promise<AgentResult>
       getWindowParams: () => Promise<{ sessionId: string; processPath: string; processName: string } | null>

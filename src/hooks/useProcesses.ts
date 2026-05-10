@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { ProcessInstance, ProcessSummary, WorkspaceConfig } from '../types'
-import { toProcessSummary } from '../services/processService'
+import { toProcessSummary, normalizeProcessInstance } from '../services/processService'
 
 interface ProcessMap {
   [path: string]: ProcessInstance
@@ -83,13 +83,13 @@ export function useProcesses(options: UseProcessesOptions = {}) {
         setError(null)
         return true
       } else {
-        setError(result.error || `Failed to start file watcher for "${path}". Please ensure the folder contains a ".user-processes" directory.`)
+        setError(result.error || `Failed to start file watcher for "${path}".`)
         console.error('File watcher error:', result.error)
         return false
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
-      setError(`Failed to start file watcher for "${path}". ${errorMessage}\n\nPlease ensure the folder contains a ".user-processes" directory with process.json files.`)
+      setError(`Failed to start file watcher for "${path}". ${errorMessage}`)
       console.error('File watcher error:', err)
       return false
     }
@@ -115,48 +115,31 @@ export function useProcesses(options: UseProcessesOptions = {}) {
     }
   }, [])
 
-  // Add a folder (detect type and add appropriately)
+  // Add a folder as a project working directory
+  // Process instances are now watched from ~/.claude/agentic-processes/ (global),
+  // but project paths are still used as working directories for agent sessions.
   const addFolder = useCallback(async (path: string) => {
     if (!isElectron()) {
       setError('This app requires Electron to add folders.')
       return
     }
-    
+
     try {
-      const detection = await window.electronAPI.detectFolderType(path)
-      console.log('[useProcesses] Folder detection for', path, ':', detection)
-      
-      if (detection.hasProcesses && !detection.hasUserProcesses) {
-        // Pure framework folder (only has .processes/)
-        setFrameworkPathState(path)
-        console.log('[useProcesses] Set as framework path:', path)
-      } else if (detection.hasUserProcesses) {
-        // Project folder (has .user-processes/)
-        // Also set as framework if it has .processes/ and no framework set yet
-        if (detection.hasProcesses && !frameworkPath) {
-          setFrameworkPathState(path)
-          console.log('[useProcesses] Also set as framework path:', path)
-        }
-        
-        // Add to project paths if not already present
-        setProjectPathsState(prev => {
-          if (prev.includes(path)) return prev
-          return [...prev, path]
-        })
-        
-        // Start watching this project
-        await startWatching(path)
-        console.log('[useProcesses] Added project path:', path)
-      } else {
-        // Folder has neither .processes/ nor .user-processes/
-        setError(`Folder "${path}" does not contain .processes/ or .user-processes/ directory.`)
-      }
+      // Add to project paths if not already present
+      setProjectPathsState(prev => {
+        if (prev.includes(path)) return prev
+        return [...prev, path]
+      })
+
+      // Start the global watcher (watches ~/.claude/agentic-processes/)
+      await startWatching(path)
+      console.log('[useProcesses] Added project path:', path)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       setError(`Failed to add folder: ${errorMessage}`)
       console.error('Add folder error:', err)
     }
-  }, [frameworkPath, startWatching])
+  }, [startWatching])
 
   // Remove a project folder
   const removeProject = useCallback(async (path: string) => {
@@ -206,7 +189,7 @@ export function useProcesses(options: UseProcessesOptions = {}) {
             
             setProcesses(prev => ({
               ...prev,
-              [data.path]: process
+              [data.path]: normalizeProcessInstance(process)
             }))
             
             // Clear any previous error for this path

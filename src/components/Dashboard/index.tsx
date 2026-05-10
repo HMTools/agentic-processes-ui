@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ProcessSummary, ProcessInstance } from '../../types'
+import type { ProcessSummary, ProcessInstance, ExternalSession } from '../../types'
 import { ProcessCard } from './ProcessCard'
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'failed'
@@ -19,6 +19,8 @@ interface DashboardProps {
   getProcess: (path: string) => ProcessInstance | undefined
   processErrors?: ProcessError[]
   onNewProcess?: () => void
+  externalSessions?: Record<string, ExternalSession>
+  onMigrateSession?: (processPath: string) => void
 }
 
 export function Dashboard({
@@ -30,7 +32,9 @@ export function Dashboard({
   onSelectProcess,
   getProcess,
   processErrors = [],
-  onNewProcess
+  onNewProcess,
+  externalSessions = {},
+  onMigrateSession
 }: DashboardProps) {
   const [filter, setFilter] = useState<FilterStatus>('active')
   const [showErrors, setShowErrors] = useState(true)
@@ -154,6 +158,11 @@ export function Dashboard({
                 fullProcess={getProcess(process.path)}
                 onClick={() => onSelectProcess(process.path)}
                 isSelected={selectedProcess === process.path}
+                externalSession={externalSessions[process.path] || null}
+                onMigrateSession={externalSessions[process.path] && onMigrateSession
+                  ? () => onMigrateSession(process.path)
+                  : undefined
+                }
               />
             ))}
           </div>

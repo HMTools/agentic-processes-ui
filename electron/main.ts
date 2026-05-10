@@ -1,17 +1,20 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, clipboard } from 'electron'
 import { join, dirname, extname } from 'path'
+import { homedir } from 'os'
 import { fileURLToPath } from 'url'
 import { readFile, readdir, stat, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import { watch, type FSWatcher } from 'chokidar'
 import { createFileWatcher, stopFileWatcher, stopAllFileWatchers } from './fileWatcher'
-import { 
-  getAgentManager, 
-  cleanupAgentManager, 
+import {
+  getAgentManager,
+  cleanupAgentManager,
   AGENT_CONFIGS,
   type AgentType,
   type AgentOutputEvent,
-  type AgentStatusEvent
+  type AgentStatusEvent,
+  type ActiveProcessInfo,
+  type ExternalSession
 } from './agentSessionManager'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -108,7 +111,7 @@ function createTerminalWindow(sessionId: string, processPath: string, processNam
 ipcMain.handle('select-project-folder', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openDirectory'],
-    title: 'Select Project with .user-processes folder'
+    title: 'Select Project Folder'
   })
   
   if (!result.canceled && result.filePaths.length > 0) {
@@ -334,9 +337,9 @@ ipcMain.handle('delete-process-instance', async (_event, processPath: string) =>
     // Extract the directory path from the process.json path
     const processDir = dirname(processPath)
 
-    // Validate path is within .user-processes
-    if (!processDir.includes('.user-processes')) {
-      return { success: false, error: 'Invalid path: not in .user-processes' }
+    // Validate path is within agentic-processes
+    if (!processDir.includes('agentic-processes')) {
+      return { success: false, error: 'Invalid path: not in agentic-processes' }
     }
 
     // Check if directory exists
@@ -358,32 +361,31 @@ ipcMain.handle('delete-process-instance', async (_event, processPath: string) =>
   }
 })
 
-// Load all process templates from .processes/templates/
-ipcMain.handle('load-process-templates', async (_event, projectPath: string) => {
+// Load all process templates from ~/.claude/agentic-processes/templates/ (unified)
+ipcMain.handle('load-process-templates', async () => {
   try {
-    const templatesPath = join(projectPath, '.processes', 'templates')
-    
+    const templatesPath = join(homedir(), '.claude', 'agentic-processes', 'templates')
+
     if (!existsSync(templatesPath)) {
       console.log(`Templates directory not found: ${templatesPath}`)
       return []
     }
-    
+
     const templates = []
     const categories = await readdir(templatesPath)
-    
+
     for (const category of categories) {
       const categoryPath = join(templatesPath, category)
       const categoryStat = await stat(categoryPath)
-      
+
       // Skip non-directories and special files
       if (!categoryStat.isDirectory() || category.startsWith('.') || category.startsWith('_')) {
         continue
       }
-      
+
       // Check if this is a direct template folder (has .json file with same name)
       const directTemplateJson = join(categoryPath, `${category}.json`)
       if (existsSync(directTemplateJson)) {
-        // This is a template directly under templates/ (unusual but possible)
         try {
           const content = await readFile(directTemplateJson, 'utf-8')
           const template = JSON.parse(content)
@@ -400,25 +402,25 @@ ipcMain.handle('load-process-templates', async (_event, projectPath: string) => 
         }
         continue
       }
-      
+
       // Otherwise, scan for template subdirectories
       const templateFolders = await readdir(categoryPath)
-      
+
       for (const templateName of templateFolders) {
         const templatePath = join(categoryPath, templateName)
         const templateStat = await stat(templatePath)
-        
+
         if (!templateStat.isDirectory() || templateName.startsWith('.') || templateName.startsWith('_')) {
           continue
         }
-        
+
         const jsonPath = join(templatePath, `${templateName}.json`)
-        
+
         if (existsSync(jsonPath)) {
           try {
             const content = await readFile(jsonPath, 'utf-8')
             const template = JSON.parse(content)
-            
+
             if (template.type === 'template') {
               template.filePath = jsonPath
               template.markdownPath = join(templatePath, `${templateName}.md`)
@@ -433,7 +435,7 @@ ipcMain.handle('load-process-templates', async (_event, projectPath: string) => 
         }
       }
     }
-    
+
     return templates
   } catch (error) {
     console.error('Error loading process templates:', error)
@@ -441,196 +443,45 @@ ipcMain.handle('load-process-templates', async (_event, projectPath: string) => 
   }
 })
 
-// Load user templates from .user-processes/templates/ (project-specific)
-ipcMain.handle('load-user-templates', async (_event, projectPath: string) => {
+// Load all step templates from ~/.claude/agentic-processes/steps/ (unified)
+ipcMain.handle('load-step-templates', async () => {
   try {
-    const templatesPath = join(projectPath, '.user-processes', 'templates')
-    
-    if (!existsSync(templatesPath)) {
-      console.log(`User templates directory not found: ${templatesPath}`)
-      return []
-    }
-    
-    const templates = []
-    const categories = await readdir(templatesPath)
-    
-    for (const category of categories) {
-      const categoryPath = join(templatesPath, category)
-      const categoryStat = await stat(categoryPath)
-      
-      // Skip non-directories and special files
-      if (!categoryStat.isDirectory() || category.startsWith('.') || category.startsWith('_')) {
-        continue
-      }
-      
-      // Check if this is a direct template folder (has .json file with same name)
-      const directTemplateJson = join(categoryPath, `${category}.json`)
-      if (existsSync(directTemplateJson)) {
-        try {
-          const content = await readFile(directTemplateJson, 'utf-8')
-          const template = JSON.parse(content)
-          if (template.type === 'template') {
-            template.filePath = directTemplateJson
-            template.markdownPath = join(categoryPath, `${category}.md`)
-            if (existsSync(template.markdownPath)) {
-              template.markdownContent = await readFile(template.markdownPath, 'utf-8')
-            }
-            templates.push(template)
-          }
-        } catch (err) {
-          console.error(`Error reading user template: ${directTemplateJson}`, err)
-        }
-        continue
-      }
-      
-      // Otherwise, scan for template subdirectories
-      const templateFolders = await readdir(categoryPath)
-      
-      for (const templateName of templateFolders) {
-        const templatePath = join(categoryPath, templateName)
-        const templateStat = await stat(templatePath)
-        
-        if (!templateStat.isDirectory() || templateName.startsWith('.') || templateName.startsWith('_')) {
-          continue
-        }
-        
-        const jsonPath = join(templatePath, `${templateName}.json`)
-        
-        if (existsSync(jsonPath)) {
-          try {
-            const content = await readFile(jsonPath, 'utf-8')
-            const template = JSON.parse(content)
-            
-            if (template.type === 'template') {
-              template.filePath = jsonPath
-              template.markdownPath = join(templatePath, `${templateName}.md`)
-              if (existsSync(template.markdownPath)) {
-                template.markdownContent = await readFile(template.markdownPath, 'utf-8')
-              }
-              templates.push(template)
-            }
-          } catch (err) {
-            console.error(`Error reading user template: ${jsonPath}`, err)
-          }
-        }
-      }
-    }
-    
-    return templates
-  } catch (error) {
-    console.error('Error loading user templates:', error)
-    return []
-  }
-})
+    const stepsPath = join(homedir(), '.claude', 'agentic-processes', 'steps')
 
-// Load user step templates from .user-processes/steps/ (project-specific)
-ipcMain.handle('load-user-steps', async (_event, projectPath: string) => {
-  try {
-    const stepsPath = join(projectPath, '.user-processes', 'steps')
-    
-    if (!existsSync(stepsPath)) {
-      console.log(`User steps directory not found: ${stepsPath}`)
-      return []
-    }
-    
-    const steps = []
-    const categories = await readdir(stepsPath)
-    
-    for (const category of categories) {
-      const categoryPath = join(stepsPath, category)
-      const categoryStat = await stat(categoryPath)
-      
-      // Skip non-directories and special folders like _components
-      if (!categoryStat.isDirectory() || category.startsWith('.') || category.startsWith('_')) {
-        continue
-      }
-      
-      const stepFolders = await readdir(categoryPath)
-      
-      for (const stepName of stepFolders) {
-        const stepPath = join(categoryPath, stepName)
-        const stepStat = await stat(stepPath)
-        
-        if (!stepStat.isDirectory() || stepName.startsWith('.') || stepName.startsWith('_')) {
-          continue
-        }
-        
-        const jsonPath = join(stepPath, `${stepName}.json`)
-        
-        if (existsSync(jsonPath)) {
-          try {
-            const content = await readFile(jsonPath, 'utf-8')
-            const step = JSON.parse(content)
-            
-            if (step.type === 'step') {
-              step.filePath = jsonPath
-              step.markdownPath = join(stepPath, `${stepName}.md`)
-              if (existsSync(step.markdownPath)) {
-                step.markdownContent = await readFile(step.markdownPath, 'utf-8')
-              }
-              steps.push(step)
-            }
-          } catch (err) {
-            console.error(`Error reading user step: ${jsonPath}`, err)
-          }
-        }
-      }
-    }
-    
-    return steps
-  } catch (error) {
-    console.error('Error loading user steps:', error)
-    return []
-  }
-})
-
-// Detect what type of folder this is (framework with .processes/ and/or project with .user-processes/)
-ipcMain.handle('detect-folder-type', async (_event, path: string) => {
-  return {
-    hasProcesses: existsSync(join(path, '.processes')),
-    hasUserProcesses: existsSync(join(path, '.user-processes'))
-  }
-})
-
-// Load all step templates from .processes/steps/
-ipcMain.handle('load-step-templates', async (_event, projectPath: string) => {
-  try {
-    const stepsPath = join(projectPath, '.processes', 'steps')
-    
     if (!existsSync(stepsPath)) {
       console.log(`Steps directory not found: ${stepsPath}`)
       return []
     }
-    
+
     const steps = []
     const categories = await readdir(stepsPath)
-    
+
     for (const category of categories) {
       const categoryPath = join(stepsPath, category)
       const categoryStat = await stat(categoryPath)
-      
+
       // Skip non-directories and special folders like _components
       if (!categoryStat.isDirectory() || category.startsWith('.') || category.startsWith('_')) {
         continue
       }
-      
+
       const stepFolders = await readdir(categoryPath)
-      
+
       for (const stepName of stepFolders) {
         const stepPath = join(categoryPath, stepName)
         const stepStat = await stat(stepPath)
-        
+
         if (!stepStat.isDirectory() || stepName.startsWith('.') || stepName.startsWith('_')) {
           continue
         }
-        
+
         const jsonPath = join(stepPath, `${stepName}.json`)
-        
+
         if (existsSync(jsonPath)) {
           try {
             const content = await readFile(jsonPath, 'utf-8')
             const step = JSON.parse(content)
-            
+
             if (step.type === 'step') {
               step.filePath = jsonPath
               step.markdownPath = join(stepPath, `${stepName}.md`)
@@ -645,7 +496,7 @@ ipcMain.handle('load-step-templates', async (_event, projectPath: string) => {
         }
       }
     }
-    
+
     return steps
   } catch (error) {
     console.error('Error loading step templates:', error)
@@ -709,17 +560,19 @@ ipcMain.handle('agent:get-available', () => {
 })
 
 // Create a new agent session
-ipcMain.handle('agent:create', async (_event, agentType: AgentType, workingDirectory: string, processPath?: string) => {
+ipcMain.handle('agent:create', async (_event, agentType: AgentType, workingDirectory: string, processPath?: string, options?: { permissionMode?: string }) => {
   try {
     initializeAgentManager()
     const agentManager = getAgentManager()
-    const session = await agentManager.createSession(agentType, workingDirectory, processPath)
+    const session = await agentManager.createSession(agentType, workingDirectory, processPath, {
+      permissionMode: options?.permissionMode as 'regular' | 'allow-all' | undefined
+    })
     return { success: true, session }
   } catch (error) {
     console.error('Error creating agent session:', error)
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
     }
   }
 })
@@ -884,6 +737,48 @@ ipcMain.handle('agent:get-for-process', (_event, processPath: string) => {
       success: false, 
       sessions: [],
       error: error instanceof Error ? error.message : 'Unknown error' 
+    }
+  }
+})
+
+// Discover external Claude Code sessions not managed by this app
+ipcMain.handle('agent:discover-external', async (_event, activeProcesses: ActiveProcessInfo[]) => {
+  try {
+    initializeAgentManager()
+    const agentManager = getAgentManager()
+    const externalSessions = await agentManager.discoverExternalSessions(activeProcesses)
+
+    // Convert Map to plain object for IPC serialization
+    const sessionsObj: Record<string, ExternalSession> = {}
+    for (const [key, value] of externalSessions) {
+      sessionsObj[key] = value
+    }
+
+    return { success: true, sessions: sessionsObj }
+  } catch (error) {
+    console.error('Error discovering external sessions:', error)
+    return {
+      success: false,
+      sessions: {},
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
+})
+
+// Migrate an external session into this app (kill external, resume in PTY)
+ipcMain.handle('agent:migrate-external', async (_event, externalSession: ExternalSession, workingDirectory: string, options?: { permissionMode?: string }) => {
+  try {
+    initializeAgentManager()
+    const agentManager = getAgentManager()
+    const session = await agentManager.migrateExternalSession(externalSession, workingDirectory, {
+      permissionMode: options?.permissionMode as 'regular' | 'allow-all' | undefined
+    })
+    return { success: true, session }
+  } catch (error) {
+    console.error('Error migrating external session:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
     }
   }
 })

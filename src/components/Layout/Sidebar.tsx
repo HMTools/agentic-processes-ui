@@ -12,11 +12,13 @@ interface SidebarProps {
   processCount: number
   activeCount: number
   runningSessionCount?: number
-  currentView: 'dashboard' | 'settings' | 'templates' | 'agent-sessions'
+  currentView: 'dashboard' | 'settings' | 'templates' | 'agent-sessions' | 'processes-overview'
   onNavigateToSettings: () => void
   onNavigateToDashboard: () => void
   onNavigateToTemplates: () => void
   onNavigateToAgentSessions: () => void
+  onNavigateToProcessesOverview: () => void
+  attentionCount?: number
 }
 
 export function Sidebar({ 
@@ -32,7 +34,9 @@ export function Sidebar({
   onNavigateToSettings,
   onNavigateToDashboard,
   onNavigateToTemplates,
-  onNavigateToAgentSessions
+  onNavigateToAgentSessions,
+  onNavigateToProcessesOverview,
+  attentionCount = 0
 }: SidebarProps) {
   const hasWorkspace = Boolean(frameworkPath) || projectPaths.length > 0
 
@@ -83,10 +87,22 @@ export function Sidebar({
           onClick={onNavigateToDashboard}
           badge={processCount > 0 ? processCount : undefined}
         />
-        <NavButton 
+        <NavButton
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+            </svg>
+          }
+          label="Processes Overview"
+          active={currentView === 'processes-overview'}
+          onClick={onNavigateToProcessesOverview}
+          badge={attentionCount > 0 ? attentionCount : undefined}
+        />
+        <NavButton
+          icon={
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
             </svg>
           }

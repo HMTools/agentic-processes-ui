@@ -1,4 +1,4 @@
-import type { AgentType, AgentSession, AgentConfig } from '../types'
+import type { AgentType, AgentSession, AgentConfig, ExternalSession } from '../types'
 
 // ============================================================================
 // Agent Configurations
@@ -8,7 +8,7 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   'cursor': {
     command: 'agent',
     processAttachCommand: (path: string) => `/process-continue ${path}`,
-    available: true,
+    available: false,
     displayName: 'Cursor Agent'
   },
   'github-copilot': {
@@ -42,9 +42,10 @@ export async function getAvailableAgents(): Promise<Array<{ type: AgentType; dis
 export async function createAgentSession(
   agentType: AgentType,
   workingDirectory: string,
-  processPath?: string
+  processPath?: string,
+  options?: { permissionMode?: string }
 ): Promise<{ success: boolean; session?: AgentSession; error?: string }> {
-  const result = await window.electronAPI.agentCreate(agentType, workingDirectory, processPath)
+  const result = await window.electronAPI.agentCreate(agentType, workingDirectory, processPath, options)
   return result
 }
 
@@ -153,6 +154,32 @@ export async function sendLazyPromptToProcess(
   }
   
   return sendPrompt(session.id, prompt)
+}
+
+// ============================================================================
+// External Session Discovery & Migration
+// ============================================================================
+
+/**
+ * Discover external Claude Code sessions not managed by this app.
+ * Returns a map of processPath -> ExternalSession.
+ */
+export async function discoverExternalSessions(
+  activeProcesses: Array<{ path: string; sessionId?: string; projectPaths?: string[] }>
+): Promise<Record<string, ExternalSession>> {
+  const result = await window.electronAPI.agentDiscoverExternal(activeProcesses)
+  return result.sessions || {}
+}
+
+/**
+ * Migrate an external session into this app (kill external process, resume in PTY).
+ */
+export async function migrateExternalSession(
+  externalSession: ExternalSession,
+  workingDirectory: string,
+  options?: { permissionMode?: string }
+): Promise<{ success: boolean; session?: AgentSession; error?: string }> {
+  return window.electronAPI.agentMigrateExternal(externalSession, workingDirectory, options)
 }
 
 // ============================================================================

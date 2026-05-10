@@ -2,8 +2,12 @@ import { spawn, type IPty } from 'node-pty'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
 import { platform } from 'os'
-import { execSync } from 'child_process'
-import { existsSync } from 'fs'
+import { execSync, exec } from 'child_process'
+import { promisify } from 'util'
+
+const execAsync = promisify(exec)
+import { existsSync, readFileSync } from 'fs'
+import { dirname, join } from 'path'
 
 // ============================================================================
 // Types
@@ -116,31 +120,6 @@ function getFreshWindowsEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-/**
- * Get the Cursor CLI directory path on Windows
- */
-function getCursorCliDir(): string {
-  const localAppData = process.env.LOCALAPPDATA || ''
-  return `${localAppData}\\cursor-agent`
-}
-
-/**
- * Get environment with Cursor CLI in PATH for Windows
- * This ensures 'agent' command works without full path
- */
-function getWindowsEnvWithCursorPath(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const cursorCliDir = getCursorCliDir()
-  const currentPath = baseEnv.PATH || baseEnv.Path || ''
-  
-  // Add cursor-agent dir to PATH if not already present
-  if (!currentPath.toLowerCase().includes(cursorCliDir.toLowerCase())) {
-    return {
-      ...baseEnv,
-      PATH: `${cursorCliDir};${currentPath}`
-    }
-  }
-  return baseEnv
-}
 
 /**
  * Escape special regex characters in a string for literal matching
@@ -150,15 +129,201 @@ function escapeRegex(str: string): string {
 }
 
 // ============================================================================
+// Cross-platform process discovery
+// ============================================================================
+
+interface OsProcess {
+  pid: number
+  parentPid: number
+  commandLine: string
+}
+
+/**
+ * Find running Claude Code processes across platforms.
+ * Windows: uses wmic (with PowerShell fallback).
+ * macOS/Linux: uses ps -eo pid,ppid,args.
+ * Async to avoid blocking the Electron main process.
+ */
+async function findClaudeProcesses(): Promise<OsProcess[]> {
+  const isWindows = platform() === 'win32'
+
+  try {
+    if (isWindows) {
+      return await findClaudeProcessesWindows()
+    } else {
+      return await findClaudeProcessesUnix()
+    }
+  } catch {
+    return []
+  }
+}
+
+async function findClaudeProcessesWindows(): Promise<OsProcess[]> {
+  let output: string
+
+  try {
+    // Primary: wmic
+    const result = await execAsync(
+      'wmic process where "name like \'%claude%\'" get ProcessId,ParentProcessId,CommandLine /format:csv',
+      { encoding: 'utf8', windowsHide: true, timeout: 10000 }
+    )
+    output = result.stdout
+  } catch {
+    try {
+      // Fallback: PowerShell Get-CimInstance
+      const result = await execAsync(
+        'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name like \'%claude%\'\\" | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"',
+        { encoding: 'utf8', windowsHide: true, timeout: 15000 }
+      )
+      output = result.stdout
+    } catch {
+      return []
+    }
+  }
+
+  const processes: OsProcess[] = []
+  const lines = output.trim().split('\n').filter(l => l.trim())
+
+  for (const line of lines) {
+    // wmic CSV format: Node,CommandLine,ParentProcessId,ProcessId
+    // PowerShell CSV format: "ProcessId","ParentProcessId","CommandLine"
+    const parts = line.split(',')
+    if (parts.length < 3) continue
+
+    // Try to extract numeric PID and ParentPID
+    const numbers = parts.map(p => parseInt(p.replace(/"/g, '').trim(), 10)).filter(n => !isNaN(n))
+    if (numbers.length < 2) continue
+
+    // For wmic CSV: last two numbers are ParentProcessId, ProcessId
+    // For PowerShell CSV: first two numbers are ProcessId, ParentProcessId
+    // We detect format by checking if the line starts with a node name (wmic) or a number (PowerShell)
+    const firstField = parts[0].replace(/"/g, '').trim()
+    const isWmicFormat = isNaN(parseInt(firstField, 10))
+
+    let pid: number, parentPid: number, commandLine: string
+    if (isWmicFormat) {
+      // wmic: Node,CommandLine,ParentProcessId,ProcessId
+      pid = numbers[numbers.length - 1]
+      parentPid = numbers[numbers.length - 2]
+      commandLine = parts.slice(1, -2).join(',').replace(/"/g, '').trim()
+    } else {
+      // PowerShell: "ProcessId","ParentProcessId","CommandLine"
+      pid = numbers[0]
+      parentPid = numbers[1]
+      commandLine = parts.slice(2).join(',').replace(/"/g, '').trim()
+    }
+
+    if (pid > 0) {
+      processes.push({ pid, parentPid, commandLine })
+    }
+  }
+
+  return processes
+}
+
+async function findClaudeProcessesUnix(): Promise<OsProcess[]> {
+  const result = await execAsync('ps -eo pid,ppid,args', {
+    encoding: 'utf8',
+    timeout: 5000
+  })
+
+  const processes: OsProcess[] = []
+  const lines = result.stdout.trim().split('\n').slice(1) // Skip header
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    const match = trimmed.match(/^(\d+)\s+(\d+)\s+(.+)$/)
+    if (!match) continue
+
+    const commandLine = match[3]
+    // Match processes with 'claude' in the command, excluding grep itself
+    if (/claude/i.test(commandLine) && !/grep/i.test(commandLine)) {
+      processes.push({
+        pid: parseInt(match[1], 10),
+        parentPid: parseInt(match[2], 10),
+        commandLine
+      })
+    }
+  }
+
+  return processes
+}
+
+/**
+ * Check if a PID is a descendant of any of the given ancestor PIDs.
+ * Used to determine if a claude process is managed by this app.
+ */
+function isDescendantOf(pid: number, ancestorPids: Set<number>, allProcesses: OsProcess[]): boolean {
+  const processMap = new Map(allProcesses.map(p => [p.pid, p]))
+  let current = pid
+  const visited = new Set<number>()
+
+  while (current > 1 && !visited.has(current)) {
+    visited.add(current)
+    if (ancestorPids.has(current)) return true
+    const proc = processMap.get(current)
+    if (!proc) break
+    current = proc.parentPid
+  }
+
+  return false
+}
+
+/**
+ * Kill a process by PID, cross-platform.
+ * On Windows, kills the entire process tree.
+ */
+function killProcessByPid(pid: number): void {
+  const isWindows = platform() === 'win32'
+
+  if (isWindows) {
+    try {
+      execSync(`taskkill /PID ${pid} /T /F`, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    } catch {
+      // Process may have already exited
+    }
+  } else {
+    try {
+      process.kill(pid, 'SIGTERM')
+    } catch {
+      // Process may have already exited
+    }
+    // Force kill after a short delay if still alive
+    setTimeout(() => {
+      try {
+        process.kill(pid, 0) // Check if alive
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        // Already dead
+      }
+    }, 1000)
+  }
+}
+
+export interface ExternalSession {
+  pid: number
+  commandLine: string
+  claudeSessionId: string
+  processPath: string
+  workingDirectory?: string
+}
+
+export interface ActiveProcessInfo {
+  path: string
+  sessionId?: string
+  projectPaths?: string[]
+}
+
+// ============================================================================
 // Agent Configurations
 // ============================================================================
 
 export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   'cursor': {
-    command: 'agent',  // Works because we add cursor-agent dir to PATH
+    command: 'agent',
     args: [],
     processAttachCommand: (path: string) => `/process-continue ${path}`,
-    available: true,
+    available: false,
     displayName: 'Cursor Agent'
   },
   'github-copilot': {
@@ -208,7 +373,8 @@ class AgentSessionManager extends EventEmitter {
   async createSession(
     agentType: AgentType,
     workingDirectory: string,
-    processPath?: string
+    processPath?: string,
+    options?: { resumeSessionId?: string; permissionMode?: 'regular' | 'allow-all' }
   ): Promise<AgentSession> {
     const config = AGENT_CONFIGS[agentType]
     
@@ -234,32 +400,41 @@ class AgentSessionManager extends EventEmitter {
     try {
       // Build spawn options based on platform
       const isWindows = platform() === 'win32'
-      // On Windows, get fresh environment and ensure Cursor CLI is in PATH
+      // On Windows, get fresh environment from registry to pick up newly installed CLIs
       const baseEnv = isWindows ? getFreshWindowsEnv() : process.env
       const envOptions = isWindows
-        ? getWindowsEnvWithCursorPath(baseEnv)  // Add cursor-agent to PATH
+        ? baseEnv
         : { ...baseEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor' }
 
-      // Resolve working directory - auto-fix if metadata.projectPath is stale (e.g. from another machine)
+      // Resolve working directory - auto-fix if metadata.projectPaths[0] is stale (e.g. from another machine)
       let resolvedCwd = workingDirectory
       if (!existsSync(resolvedCwd)) {
+        // Try to read projectPaths from process.json for CWD derivation
         if (processPath) {
-          const normalized = processPath.replace(/\\/g, '/')
-          const userProcessIdx = normalized.indexOf('/.user-processes/')
-          const processIdx = normalized.indexOf('/.processes/')
-          const idx = userProcessIdx !== -1 ? userProcessIdx : processIdx
-          if (idx !== -1) {
-            const derived = processPath.substring(0, idx)
-            if (existsSync(derived)) {
-              resolvedCwd = derived
+          try {
+            const processDir = dirname(processPath)
+            const processJsonPath = join(processDir, 'process.json')
+            if (existsSync(processJsonPath)) {
+              const processContent = JSON.parse(readFileSync(processJsonPath, 'utf-8'))
+              // Try new projectPaths (array) first, then legacy projectPath (string)
+              const projectPaths = processContent.metadata?.projectPaths
+              const legacyProjectPath = processContent.metadata?.projectPath
+              const derivedPath = Array.isArray(projectPaths) && projectPaths.length > 0
+                ? projectPaths[0]
+                : (typeof legacyProjectPath === 'string' ? legacyProjectPath : null)
+              if (derivedPath && existsSync(derivedPath)) {
+                resolvedCwd = derivedPath
+              }
             }
+          } catch {
+            // Failed to read process.json - fall through to error
           }
         }
         if (!existsSync(resolvedCwd)) {
           throw new Error(
             `Working directory does not exist: "${workingDirectory}". ` +
             `The process may have been created on a different machine. ` +
-            `Please update the projectPath in the process.json file.`
+            `Please update the projectPaths in the process.json file.`
           )
         }
       }
@@ -313,10 +488,20 @@ class AgentSessionManager extends EventEmitter {
       await new Promise(resolve => setTimeout(resolve, 500))
 
       // Start the agent CLI
-      const agentCommand = config.args?.length 
+      let agentCommand = config.args?.length
         ? `${config.command} ${config.args.join(' ')}`
         : config.command
-      
+
+      // If allow-all permission mode, add --dangerously-skip-permissions flag
+      if (options?.permissionMode === 'allow-all' && agentType === 'claude-code') {
+        agentCommand = `${agentCommand} --dangerously-skip-permissions`
+      }
+
+      // If resuming an existing Claude Code session, add --resume flag
+      if (options?.resumeSessionId && agentType === 'claude-code') {
+        agentCommand = `${agentCommand} --resume ${options.resumeSessionId}`
+      }
+
       // Use \r for shell command (cmd.exe/bash expects \r as Enter)
       pty.write(`${agentCommand}\r`)
 
@@ -436,8 +621,7 @@ class AgentSessionManager extends EventEmitter {
     await new Promise(resolve => setTimeout(resolve, 100))
     
     // Send Enter key (carriage return) to submit
-    // Note: \n (Ctrl+J) inserts newline WITHOUT submitting in Cursor CLI
-    // \r is the actual Enter key that submits the prompt
+    // \r (carriage return) submits the prompt
     session.pty.write('\r')
   }
 
@@ -507,6 +691,127 @@ class AgentSessionManager extends EventEmitter {
     return Array.from(this.sessions.values())
       .filter(s => s.attachedProcessPath === processPath)
       .map(s => this.getSessionPublic(s))
+  }
+
+  /**
+   * Discover external Claude Code sessions attached to active processes.
+   * Detection is purely file-based: if a .session file exists in the process
+   * folder and this app doesn't have a managed session for it, it's external.
+   * The OS process scan is deferred to migration time.
+   */
+  async discoverExternalSessions(
+    activeProcesses: ActiveProcessInfo[]
+  ): Promise<Map<string, ExternalSession>> {
+    const result = new Map<string, ExternalSession>()
+
+    for (const activeProc of activeProcesses) {
+      // Read .session file from the process folder (sibling of process.json)
+      const processDir = dirname(activeProc.path)
+      const sessionFilePath = join(processDir, '.session')
+      let realSessionId: string | null = null
+
+      try {
+        if (existsSync(sessionFilePath)) {
+          realSessionId = readFileSync(sessionFilePath, 'utf-8').trim()
+        }
+      } catch {
+        // .session file missing or unreadable — skip
+      }
+
+      if (!realSessionId) continue
+
+      // Skip if this process already has a session managed by our app
+      const managedSessions = this.getSessionsForProcess(activeProc.path)
+      if (managedSessions.some(s => s.status === 'running' || s.status === 'starting')) continue
+
+      // .session file exists and no managed session — this is an external session
+      result.set(activeProc.path, {
+        pid: 0,
+        commandLine: '',
+        claudeSessionId: realSessionId,
+        processPath: activeProc.path,
+        workingDirectory: activeProc.projectPaths?.[0]
+      })
+    }
+
+    // Enrich with real PIDs from OS process scan (best-effort, non-blocking)
+    if (result.size > 0) {
+      try {
+        const allOsProcesses = await findClaudeProcesses()
+        if (allOsProcesses.length > 0) {
+          // Exclude processes managed by this app
+          const managedPtyPids = new Set<number>()
+          for (const session of this.sessions.values()) {
+            if (session.pty) managedPtyPids.add(session.pty.pid)
+          }
+          const externalOsProcesses = allOsProcesses.filter(
+            proc => !isDescendantOf(proc.pid, managedPtyPids, allOsProcesses)
+          )
+
+          // Try to match external OS processes to discovered sessions
+          for (const [path, extSession] of result) {
+            for (const osProc of externalOsProcesses) {
+              // Match by session ID in command line, or by project path
+              const sessionMatch = osProc.commandLine.includes(extSession.claudeSessionId)
+              const cwdMatch = extSession.workingDirectory
+                && osProc.commandLine.replace(/\\/g, '/').includes(extSession.workingDirectory.replace(/\\/g, '/'))
+
+              if (sessionMatch || cwdMatch) {
+                extSession.pid = osProc.pid
+                extSession.commandLine = osProc.commandLine
+                break
+              }
+            }
+
+            // No fallback guessing — only show PID when strictly matched
+          }
+        }
+      } catch {
+        // OS scan failed — PID stays 0, detection still works
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * Migrate an external Claude Code session into this app.
+   * Finds and kills the external process, then resumes the session in a new PTY.
+   */
+  async migrateExternalSession(
+    externalSession: ExternalSession,
+    workingDirectory: string,
+    options?: { permissionMode?: 'regular' | 'allow-all' }
+  ): Promise<AgentSession> {
+    // Find and kill external claude processes at migration time
+    const allOsProcesses = await findClaudeProcesses()
+    if (allOsProcesses.length > 0) {
+      // Collect managed PTY PIDs to exclude
+      const managedPtyPids = new Set<number>()
+      for (const session of this.sessions.values()) {
+        if (session.pty) {
+          managedPtyPids.add(session.pty.pid)
+        }
+      }
+
+      // Kill external (unmanaged) claude processes
+      for (const proc of allOsProcesses) {
+        if (!isDescendantOf(proc.pid, managedPtyPids, allOsProcesses)) {
+          killProcessByPid(proc.pid)
+        }
+      }
+    }
+
+    // Wait for the process to fully terminate
+    await new Promise(resolve => setTimeout(resolve, 1500))
+
+    // Resume the session inside a new PTY managed by this app
+    return this.createSession(
+      'claude-code',
+      workingDirectory,
+      externalSession.processPath,
+      { resumeSessionId: externalSession.claudeSessionId, permissionMode: options?.permissionMode }
+    )
   }
 
   /**

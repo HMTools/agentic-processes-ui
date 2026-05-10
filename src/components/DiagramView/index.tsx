@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import type { ProcessInstance, ProcessStep, ProcessMemory, ProcessLog, ChildProcessRef, ParentProcessRef } from '../../types'
+import type { ProcessInstance, ProcessStep, ProcessMemory, ProcessLog, ChildProcessRef, ParentProcessRef, ExternalSession } from '../../types'
 import { ProcessDiagram } from './ProcessDiagram'
 import { RightPanel } from './RightPanel'
 import { Alert } from '../Alert'
@@ -19,6 +19,8 @@ interface DiagramViewProps {
   onNavigateToProcess: (path: string) => void
   getProcess: (path: string) => ProcessInstance | undefined
   navigatedFromPath: string | null
+  externalSession?: ExternalSession | null
+  onMigrateSession?: () => Promise<void>
 }
 
 // Check if we're running in Electron
@@ -31,7 +33,7 @@ const AGENT_PANEL_MIN_HEIGHT = 150
 const AGENT_PANEL_MAX_HEIGHT = 600
 const AGENT_PANEL_DEFAULT_HEIGHT = 300
 
-export function DiagramView({ process, processPath, onBack, onNavigateToProcess, getProcess, navigatedFromPath }: DiagramViewProps) {
+export function DiagramView({ process, processPath, onBack, onNavigateToProcess, getProcess, navigatedFromPath, externalSession, onMigrateSession }: DiagramViewProps) {
   const [selectedStep, setSelectedStep] = useState<ProcessStep | null>(null)
   const [memory, setMemory] = useState<ProcessMemory | null>(null)
   const [log, setLog] = useState<ProcessLog | null>(null)
@@ -57,8 +59,8 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
   // Agent sessions for this process
   const { hasActiveSession } = useAgentSessions({ processPath })
 
-  // Get project path for agent working directory
-  const projectPath = process.metadata.projectPath || ''
+  // Get project path for agent working directory (prefer projectPaths array, fallback to legacy projectPath)
+  const projectPath = process.metadata.projectPaths?.[0] || process.metadata.projectPath || ''
 
   // Delete handler
   const handleDelete = async () => {
@@ -148,14 +150,17 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
     return unsubscribe
   }, [processPath])
 
-  // Resolve relative processPath to absolute path matching the format used in processes map
-  const resolveProcessPath = useCallback((relativePath: string): string => {
-    // Get the project path from current process metadata
-    const projectPath = process.metadata.projectPath
-    // Normalize path separators and join with process.json
-    const normalizedRelative = relativePath.replace(/^\.\//, '').replace(/\//g, '\\')
-    return `${projectPath.replace(/\//g, '\\')}\\${normalizedRelative}\\process.json`
-  }, [process.metadata.projectPath])
+  // Resolve processPath — paths are now absolute, so just ensure process.json suffix
+  const resolveProcessPath = useCallback((processPathValue: string): string => {
+    const normalized = processPathValue.replace(/^\.\//, '').replace(/\//g, '\\')
+    // If it's already absolute (starts with drive letter or /), use as-is
+    if (/^[A-Za-z]:/.test(normalized) || normalized.startsWith('\\')) {
+      return normalized.endsWith('\\process.json') ? normalized : `${normalized}\\process.json`
+    }
+    // Legacy relative path — resolve against projectPaths[0] or projectPath
+    const basePath = process.metadata.projectPaths?.[0] || process.metadata.projectPath || ''
+    return `${basePath.replace(/\//g, '\\')}\\${normalized}\\process.json`
+  }, [process.metadata.projectPaths, process.metadata.projectPath])
 
   // Determine which node to focus based on where we navigated from
   const focusNodeId = useMemo(() => {
@@ -299,6 +304,7 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
             <LazyPromptButton
               process={process}
               processPath={processPath!}
+              projectPath={projectPath}
               variant="default"
             />
             {/* Delete Button */}
@@ -428,6 +434,8 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
               processPath={processPath}
               projectPath={projectPath}
               onClose={() => setShowAgentPanel(false)}
+              externalSession={externalSession}
+              onMigrateSession={onMigrateSession}
             />
           </div>
         )}
@@ -446,6 +454,7 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
         <LazyPromptModal
           process={process}
           processPath={processPath!}
+          projectPath={projectPath}
           onClose={() => setShowLazyPromptModal(false)}
         />
       )}

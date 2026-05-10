@@ -198,6 +198,7 @@ export const SubProcessNode = memo(function SubProcessNode({ data, selected }: S
         <LazyPromptModal
           process={subProcess}
           processPath={subProcessPath}
+          projectPath={subProcess.metadata.projectPaths?.[0] || subProcess.metadata.projectPath || ''}
           onClose={handleCloseModal}
         />
       )}

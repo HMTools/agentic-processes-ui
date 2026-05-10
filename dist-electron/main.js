@@ -1,35 +1,37 @@
 import { ipcMain, dialog, clipboard, BrowserWindow, app, Menu } from "electron";
 import { join, dirname, extname } from "path";
+import { homedir, platform } from "os";
 import { fileURLToPath } from "url";
 import { mkdir, readFile, readdir, stat, rm } from "fs/promises";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { watch } from "chokidar";
 import { spawn } from "node-pty";
 import { EventEmitter } from "events";
 import { randomUUID } from "crypto";
-import { platform } from "os";
-import { execSync } from "child_process";
+import { exec, execSync } from "child_process";
+import { promisify } from "util";
+const AGENTIC_DIR = join(homedir(), ".claude", "agentic-processes");
 const watchers = /* @__PURE__ */ new Map();
-async function createFileWatcher(projectPath, callback, onError) {
-  stopFileWatcher(projectPath);
-  const userProcessesPath = join(projectPath, ".user-processes");
-  console.log("Starting file watcher for:", userProcessesPath);
-  console.log("Path exists:", existsSync(userProcessesPath));
-  if (!existsSync(userProcessesPath)) {
-    console.log("Creating .user-processes directory structure...");
+async function createFileWatcher(_projectPath, callback, onError) {
+  stopFileWatcher("global");
+  const agenticPath = AGENTIC_DIR;
+  console.log("Starting file watcher for:", agenticPath);
+  console.log("Path exists:", existsSync(agenticPath));
+  if (!existsSync(agenticPath)) {
+    console.log("Creating agentic-processes directory structure...");
     try {
-      await mkdir(join(userProcessesPath, "active"), { recursive: true });
-      await mkdir(join(userProcessesPath, "completed"), { recursive: true });
-      await mkdir(join(userProcessesPath, "failed"), { recursive: true });
-      console.log(".user-processes directory structure created successfully");
+      await mkdir(join(agenticPath, "active"), { recursive: true });
+      await mkdir(join(agenticPath, "completed"), { recursive: true });
+      await mkdir(join(agenticPath, "failed"), { recursive: true });
+      console.log("agentic-processes directory structure created successfully");
     } catch (error) {
-      const errorMsg = `Failed to create .user-processes directory structure: ${error instanceof Error ? error.message : String(error)}`;
+      const errorMsg = `Failed to create agentic-processes directory structure: ${error instanceof Error ? error.message : String(error)}`;
       console.error(errorMsg);
       if (onError) onError(errorMsg);
       return { success: false, error: errorMsg };
     }
   }
-  const watcher = watch(userProcessesPath, {
+  const watcher = watch(agenticPath, {
     persistent: true,
     ignoreInitial: false,
     usePolling: true,
@@ -99,18 +101,18 @@ async function createFileWatcher(projectPath, callback, onError) {
     }
   });
   watcher.on("ready", () => {
-    console.log(`File watcher ready for: ${projectPath}`);
+    console.log(`File watcher ready for: ${agenticPath}`);
   });
-  watchers.set(projectPath, watcher);
+  watchers.set("global", watcher);
   return { success: true };
 }
-function stopFileWatcher(projectPath) {
-  if (projectPath) {
-    const watcher = watchers.get(projectPath);
+function stopFileWatcher(watcherId) {
+  if (watcherId) {
+    const watcher = watchers.get(watcherId);
     if (watcher) {
       watcher.close();
-      watchers.delete(projectPath);
-      console.log(`File watcher stopped for: ${projectPath}`);
+      watchers.delete(watcherId);
+      console.log(`File watcher stopped for: ${watcherId}`);
     }
   } else {
     stopAllFileWatchers();
@@ -124,6 +126,7 @@ function stopAllFileWatchers() {
   watchers.clear();
   console.log("All file watchers stopped");
 }
+const execAsync = promisify(exec);
 function readRegistryValue(key, valueName) {
   try {
     const output = execSync(`reg query "${key}" /v "${valueName}"`, {
@@ -162,31 +165,127 @@ function getFreshWindowsEnv() {
   }
   return env;
 }
-function getCursorCliDir() {
-  const localAppData = process.env.LOCALAPPDATA || "";
-  return `${localAppData}\\cursor-agent`;
-}
-function getWindowsEnvWithCursorPath(baseEnv) {
-  const cursorCliDir = getCursorCliDir();
-  const currentPath = baseEnv.PATH || baseEnv.Path || "";
-  if (!currentPath.toLowerCase().includes(cursorCliDir.toLowerCase())) {
-    return {
-      ...baseEnv,
-      PATH: `${cursorCliDir};${currentPath}`
-    };
-  }
-  return baseEnv;
-}
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+async function findClaudeProcesses() {
+  const isWindows = platform() === "win32";
+  try {
+    if (isWindows) {
+      return await findClaudeProcessesWindows();
+    } else {
+      return await findClaudeProcessesUnix();
+    }
+  } catch {
+    return [];
+  }
+}
+async function findClaudeProcessesWindows() {
+  let output;
+  try {
+    const result = await execAsync(
+      `wmic process where "name like '%claude%'" get ProcessId,ParentProcessId,CommandLine /format:csv`,
+      { encoding: "utf8", windowsHide: true, timeout: 1e4 }
+    );
+    output = result.stdout;
+  } catch {
+    try {
+      const result = await execAsync(
+        `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name like '%claude%'\\" | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"`,
+        { encoding: "utf8", windowsHide: true, timeout: 15e3 }
+      );
+      output = result.stdout;
+    } catch {
+      return [];
+    }
+  }
+  const processes = [];
+  const lines = output.trim().split("\n").filter((l) => l.trim());
+  for (const line of lines) {
+    const parts = line.split(",");
+    if (parts.length < 3) continue;
+    const numbers = parts.map((p) => parseInt(p.replace(/"/g, "").trim(), 10)).filter((n) => !isNaN(n));
+    if (numbers.length < 2) continue;
+    const firstField = parts[0].replace(/"/g, "").trim();
+    const isWmicFormat = isNaN(parseInt(firstField, 10));
+    let pid, parentPid, commandLine;
+    if (isWmicFormat) {
+      pid = numbers[numbers.length - 1];
+      parentPid = numbers[numbers.length - 2];
+      commandLine = parts.slice(1, -2).join(",").replace(/"/g, "").trim();
+    } else {
+      pid = numbers[0];
+      parentPid = numbers[1];
+      commandLine = parts.slice(2).join(",").replace(/"/g, "").trim();
+    }
+    if (pid > 0) {
+      processes.push({ pid, parentPid, commandLine });
+    }
+  }
+  return processes;
+}
+async function findClaudeProcessesUnix() {
+  const result = await execAsync("ps -eo pid,ppid,args", {
+    encoding: "utf8",
+    timeout: 5e3
+  });
+  const processes = [];
+  const lines = result.stdout.trim().split("\n").slice(1);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(/^(\d+)\s+(\d+)\s+(.+)$/);
+    if (!match) continue;
+    const commandLine = match[3];
+    if (/claude/i.test(commandLine) && !/grep/i.test(commandLine)) {
+      processes.push({
+        pid: parseInt(match[1], 10),
+        parentPid: parseInt(match[2], 10),
+        commandLine
+      });
+    }
+  }
+  return processes;
+}
+function isDescendantOf(pid, ancestorPids, allProcesses) {
+  const processMap = new Map(allProcesses.map((p) => [p.pid, p]));
+  let current = pid;
+  const visited = /* @__PURE__ */ new Set();
+  while (current > 1 && !visited.has(current)) {
+    visited.add(current);
+    if (ancestorPids.has(current)) return true;
+    const proc = processMap.get(current);
+    if (!proc) break;
+    current = proc.parentPid;
+  }
+  return false;
+}
+function killProcessByPid(pid) {
+  const isWindows = platform() === "win32";
+  if (isWindows) {
+    try {
+      execSync(`taskkill /PID ${pid} /T /F`, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    } catch {
+    }
+  } else {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+    }
+    setTimeout(() => {
+      try {
+        process.kill(pid, 0);
+        process.kill(pid, "SIGKILL");
+      } catch {
+      }
+    }, 1e3);
+  }
 }
 const AGENT_CONFIGS = {
   "cursor": {
     command: "agent",
-    // Works because we add cursor-agent dir to PATH
     args: [],
     processAttachCommand: (path) => `/process-continue ${path}`,
-    available: true,
+    available: false,
     displayName: "Cursor Agent"
   },
   "github-copilot": {
@@ -221,7 +320,7 @@ class AgentSessionManager extends EventEmitter {
   /**
    * Create a new agent session
    */
-  async createSession(agentType, workingDirectory, processPath) {
+  async createSession(agentType, workingDirectory, processPath, options) {
     const config = AGENT_CONFIGS[agentType];
     if (!config.available) {
       throw new Error(`Agent type '${agentType}' is not available yet`);
@@ -242,24 +341,28 @@ class AgentSessionManager extends EventEmitter {
     try {
       const isWindows = platform() === "win32";
       const baseEnv = isWindows ? getFreshWindowsEnv() : process.env;
-      const envOptions = isWindows ? getWindowsEnvWithCursorPath(baseEnv) : { ...baseEnv, TERM: "xterm-256color", COLORTERM: "truecolor" };
+      const envOptions = isWindows ? baseEnv : { ...baseEnv, TERM: "xterm-256color", COLORTERM: "truecolor" };
       let resolvedCwd = workingDirectory;
       if (!existsSync(resolvedCwd)) {
         if (processPath) {
-          const normalized = processPath.replace(/\\/g, "/");
-          const userProcessIdx = normalized.indexOf("/.user-processes/");
-          const processIdx = normalized.indexOf("/.processes/");
-          const idx = userProcessIdx !== -1 ? userProcessIdx : processIdx;
-          if (idx !== -1) {
-            const derived = processPath.substring(0, idx);
-            if (existsSync(derived)) {
-              resolvedCwd = derived;
+          try {
+            const processDir = dirname(processPath);
+            const processJsonPath = join(processDir, "process.json");
+            if (existsSync(processJsonPath)) {
+              const processContent = JSON.parse(readFileSync(processJsonPath, "utf-8"));
+              const projectPaths = processContent.metadata?.projectPaths;
+              const legacyProjectPath = processContent.metadata?.projectPath;
+              const derivedPath = Array.isArray(projectPaths) && projectPaths.length > 0 ? projectPaths[0] : typeof legacyProjectPath === "string" ? legacyProjectPath : null;
+              if (derivedPath && existsSync(derivedPath)) {
+                resolvedCwd = derivedPath;
+              }
             }
+          } catch {
           }
         }
         if (!existsSync(resolvedCwd)) {
           throw new Error(
-            `Working directory does not exist: "${workingDirectory}". The process may have been created on a different machine. Please update the projectPath in the process.json file.`
+            `Working directory does not exist: "${workingDirectory}". The process may have been created on a different machine. Please update the projectPaths in the process.json file.`
           );
         }
       }
@@ -300,7 +403,13 @@ class AgentSessionManager extends EventEmitter {
         }
       });
       await new Promise((resolve) => setTimeout(resolve, 500));
-      const agentCommand = config.args?.length ? `${config.command} ${config.args.join(" ")}` : config.command;
+      let agentCommand = config.args?.length ? `${config.command} ${config.args.join(" ")}` : config.command;
+      if (options?.permissionMode === "allow-all" && agentType === "claude-code") {
+        agentCommand = `${agentCommand} --dangerously-skip-permissions`;
+      }
+      if (options?.resumeSessionId && agentType === "claude-code") {
+        agentCommand = `${agentCommand} --resume ${options.resumeSessionId}`;
+      }
       pty.write(`${agentCommand}\r`);
       const readyPattern = /[?>]\s*(for shortcuts|$)/;
       await this.waitForOutput(sessionId, readyPattern, 3e4);
@@ -429,6 +538,90 @@ class AgentSessionManager extends EventEmitter {
    */
   getSessionsForProcess(processPath) {
     return Array.from(this.sessions.values()).filter((s) => s.attachedProcessPath === processPath).map((s) => this.getSessionPublic(s));
+  }
+  /**
+   * Discover external Claude Code sessions attached to active processes.
+   * Detection is purely file-based: if a .session file exists in the process
+   * folder and this app doesn't have a managed session for it, it's external.
+   * The OS process scan is deferred to migration time.
+   */
+  async discoverExternalSessions(activeProcesses) {
+    const result = /* @__PURE__ */ new Map();
+    for (const activeProc of activeProcesses) {
+      const processDir = dirname(activeProc.path);
+      const sessionFilePath = join(processDir, ".session");
+      let realSessionId = null;
+      try {
+        if (existsSync(sessionFilePath)) {
+          realSessionId = readFileSync(sessionFilePath, "utf-8").trim();
+        }
+      } catch {
+      }
+      if (!realSessionId) continue;
+      const managedSessions = this.getSessionsForProcess(activeProc.path);
+      if (managedSessions.some((s) => s.status === "running" || s.status === "starting")) continue;
+      result.set(activeProc.path, {
+        pid: 0,
+        commandLine: "",
+        claudeSessionId: realSessionId,
+        processPath: activeProc.path,
+        workingDirectory: activeProc.projectPaths?.[0]
+      });
+    }
+    if (result.size > 0) {
+      try {
+        const allOsProcesses = await findClaudeProcesses();
+        if (allOsProcesses.length > 0) {
+          const managedPtyPids = /* @__PURE__ */ new Set();
+          for (const session of this.sessions.values()) {
+            if (session.pty) managedPtyPids.add(session.pty.pid);
+          }
+          const externalOsProcesses = allOsProcesses.filter(
+            (proc) => !isDescendantOf(proc.pid, managedPtyPids, allOsProcesses)
+          );
+          for (const [path, extSession] of result) {
+            for (const osProc of externalOsProcesses) {
+              const sessionMatch = osProc.commandLine.includes(extSession.claudeSessionId);
+              const cwdMatch = extSession.workingDirectory && osProc.commandLine.replace(/\\/g, "/").includes(extSession.workingDirectory.replace(/\\/g, "/"));
+              if (sessionMatch || cwdMatch) {
+                extSession.pid = osProc.pid;
+                extSession.commandLine = osProc.commandLine;
+                break;
+              }
+            }
+          }
+        }
+      } catch {
+      }
+    }
+    return result;
+  }
+  /**
+   * Migrate an external Claude Code session into this app.
+   * Finds and kills the external process, then resumes the session in a new PTY.
+   */
+  async migrateExternalSession(externalSession, workingDirectory, options) {
+    const allOsProcesses = await findClaudeProcesses();
+    if (allOsProcesses.length > 0) {
+      const managedPtyPids = /* @__PURE__ */ new Set();
+      for (const session of this.sessions.values()) {
+        if (session.pty) {
+          managedPtyPids.add(session.pty.pid);
+        }
+      }
+      for (const proc of allOsProcesses) {
+        if (!isDescendantOf(proc.pid, managedPtyPids, allOsProcesses)) {
+          killProcessByPid(proc.pid);
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    return this.createSession(
+      "claude-code",
+      workingDirectory,
+      externalSession.processPath,
+      { resumeSessionId: externalSession.claudeSessionId, permissionMode: options?.permissionMode }
+    );
   }
   /**
    * Clean up all sessions
@@ -577,7 +770,7 @@ function createTerminalWindow(sessionId, processPath, processName) {
 ipcMain.handle("select-project-folder", async () => {
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
-    title: "Select Project with .user-processes folder"
+    title: "Select Project Folder"
   });
   if (!result.canceled && result.filePaths.length > 0) {
     currentProjectPath = result.filePaths[0];
@@ -762,8 +955,8 @@ ipcMain.handle("unwatch-file", (_event, filePath) => {
 ipcMain.handle("delete-process-instance", async (_event, processPath) => {
   try {
     const processDir = dirname(processPath);
-    if (!processDir.includes(".user-processes")) {
-      return { success: false, error: "Invalid path: not in .user-processes" };
+    if (!processDir.includes("agentic-processes")) {
+      return { success: false, error: "Invalid path: not in agentic-processes" };
     }
     if (!existsSync(processDir)) {
       return { success: false, error: "Process directory not found" };
@@ -779,9 +972,9 @@ ipcMain.handle("delete-process-instance", async (_event, processPath) => {
     };
   }
 });
-ipcMain.handle("load-process-templates", async (_event, projectPath) => {
+ipcMain.handle("load-process-templates", async () => {
   try {
-    const templatesPath = join(projectPath, ".processes", "templates");
+    const templatesPath = join(homedir(), ".claude", "agentic-processes", "templates");
     if (!existsSync(templatesPath)) {
       console.log(`Templates directory not found: ${templatesPath}`);
       return [];
@@ -844,127 +1037,9 @@ ipcMain.handle("load-process-templates", async (_event, projectPath) => {
     return [];
   }
 });
-ipcMain.handle("load-user-templates", async (_event, projectPath) => {
+ipcMain.handle("load-step-templates", async () => {
   try {
-    const templatesPath = join(projectPath, ".user-processes", "templates");
-    if (!existsSync(templatesPath)) {
-      console.log(`User templates directory not found: ${templatesPath}`);
-      return [];
-    }
-    const templates = [];
-    const categories = await readdir(templatesPath);
-    for (const category of categories) {
-      const categoryPath = join(templatesPath, category);
-      const categoryStat = await stat(categoryPath);
-      if (!categoryStat.isDirectory() || category.startsWith(".") || category.startsWith("_")) {
-        continue;
-      }
-      const directTemplateJson = join(categoryPath, `${category}.json`);
-      if (existsSync(directTemplateJson)) {
-        try {
-          const content = await readFile(directTemplateJson, "utf-8");
-          const template = JSON.parse(content);
-          if (template.type === "template") {
-            template.filePath = directTemplateJson;
-            template.markdownPath = join(categoryPath, `${category}.md`);
-            if (existsSync(template.markdownPath)) {
-              template.markdownContent = await readFile(template.markdownPath, "utf-8");
-            }
-            templates.push(template);
-          }
-        } catch (err) {
-          console.error(`Error reading user template: ${directTemplateJson}`, err);
-        }
-        continue;
-      }
-      const templateFolders = await readdir(categoryPath);
-      for (const templateName of templateFolders) {
-        const templatePath = join(categoryPath, templateName);
-        const templateStat = await stat(templatePath);
-        if (!templateStat.isDirectory() || templateName.startsWith(".") || templateName.startsWith("_")) {
-          continue;
-        }
-        const jsonPath = join(templatePath, `${templateName}.json`);
-        if (existsSync(jsonPath)) {
-          try {
-            const content = await readFile(jsonPath, "utf-8");
-            const template = JSON.parse(content);
-            if (template.type === "template") {
-              template.filePath = jsonPath;
-              template.markdownPath = join(templatePath, `${templateName}.md`);
-              if (existsSync(template.markdownPath)) {
-                template.markdownContent = await readFile(template.markdownPath, "utf-8");
-              }
-              templates.push(template);
-            }
-          } catch (err) {
-            console.error(`Error reading user template: ${jsonPath}`, err);
-          }
-        }
-      }
-    }
-    return templates;
-  } catch (error) {
-    console.error("Error loading user templates:", error);
-    return [];
-  }
-});
-ipcMain.handle("load-user-steps", async (_event, projectPath) => {
-  try {
-    const stepsPath = join(projectPath, ".user-processes", "steps");
-    if (!existsSync(stepsPath)) {
-      console.log(`User steps directory not found: ${stepsPath}`);
-      return [];
-    }
-    const steps = [];
-    const categories = await readdir(stepsPath);
-    for (const category of categories) {
-      const categoryPath = join(stepsPath, category);
-      const categoryStat = await stat(categoryPath);
-      if (!categoryStat.isDirectory() || category.startsWith(".") || category.startsWith("_")) {
-        continue;
-      }
-      const stepFolders = await readdir(categoryPath);
-      for (const stepName of stepFolders) {
-        const stepPath = join(categoryPath, stepName);
-        const stepStat = await stat(stepPath);
-        if (!stepStat.isDirectory() || stepName.startsWith(".") || stepName.startsWith("_")) {
-          continue;
-        }
-        const jsonPath = join(stepPath, `${stepName}.json`);
-        if (existsSync(jsonPath)) {
-          try {
-            const content = await readFile(jsonPath, "utf-8");
-            const step = JSON.parse(content);
-            if (step.type === "step") {
-              step.filePath = jsonPath;
-              step.markdownPath = join(stepPath, `${stepName}.md`);
-              if (existsSync(step.markdownPath)) {
-                step.markdownContent = await readFile(step.markdownPath, "utf-8");
-              }
-              steps.push(step);
-            }
-          } catch (err) {
-            console.error(`Error reading user step: ${jsonPath}`, err);
-          }
-        }
-      }
-    }
-    return steps;
-  } catch (error) {
-    console.error("Error loading user steps:", error);
-    return [];
-  }
-});
-ipcMain.handle("detect-folder-type", async (_event, path) => {
-  return {
-    hasProcesses: existsSync(join(path, ".processes")),
-    hasUserProcesses: existsSync(join(path, ".user-processes"))
-  };
-});
-ipcMain.handle("load-step-templates", async (_event, projectPath) => {
-  try {
-    const stepsPath = join(projectPath, ".processes", "steps");
+    const stepsPath = join(homedir(), ".claude", "agentic-processes", "steps");
     if (!existsSync(stepsPath)) {
       console.log(`Steps directory not found: ${stepsPath}`);
       return [];
@@ -1042,11 +1117,13 @@ ipcMain.handle("agent:get-available", () => {
     available: config.available
   }));
 });
-ipcMain.handle("agent:create", async (_event, agentType, workingDirectory, processPath) => {
+ipcMain.handle("agent:create", async (_event, agentType, workingDirectory, processPath, options) => {
   try {
     initializeAgentManager();
     const agentManager2 = getAgentManager();
-    const session = await agentManager2.createSession(agentType, workingDirectory, processPath);
+    const session = await agentManager2.createSession(agentType, workingDirectory, processPath, {
+      permissionMode: options?.permissionMode
+    });
     return { success: true, session };
   } catch (error) {
     console.error("Error creating agent session:", error);
@@ -1193,6 +1270,41 @@ ipcMain.handle("agent:get-for-process", (_event, processPath) => {
     return {
       success: false,
       sessions: [],
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:discover-external", async (_event, activeProcesses) => {
+  try {
+    initializeAgentManager();
+    const agentManager2 = getAgentManager();
+    const externalSessions = await agentManager2.discoverExternalSessions(activeProcesses);
+    const sessionsObj = {};
+    for (const [key, value] of externalSessions) {
+      sessionsObj[key] = value;
+    }
+    return { success: true, sessions: sessionsObj };
+  } catch (error) {
+    console.error("Error discovering external sessions:", error);
+    return {
+      success: false,
+      sessions: {},
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("agent:migrate-external", async (_event, externalSession, workingDirectory, options) => {
+  try {
+    initializeAgentManager();
+    const agentManager2 = getAgentManager();
+    const session = await agentManager2.migrateExternalSession(externalSession, workingDirectory, {
+      permissionMode: options?.permissionMode
+    });
+    return { success: true, session };
+  } catch (error) {
+    console.error("Error migrating external session:", error);
+    return {
+      success: false,
       error: error instanceof Error ? error.message : "Unknown error"
     };
   }

@@ -2,19 +2,22 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useSettings } from '../../hooks/useSettings'
 import { useToast } from '../Toast'
-import { 
-  LAZY_PROMPT_CONFIGS, 
-  generateLazyPrompt, 
+import { ConfirmationModal } from '../ConfirmationModal'
+import {
+  LAZY_PROMPT_CONFIGS,
+  generateLazyPrompt,
   executeLazyPrompt,
   getInteractionOptions,
   getActiveStep,
   generateSelectOptionPrompt
 } from '../../services/lazyPromptsService'
+import * as agentService from '../../services/agentService'
 import type { ProcessInstance, LazyPromptType, InteractionOption } from '../../types'
 
 interface LazyPromptModalProps {
   process: ProcessInstance
   processPath: string
+  projectPath: string
   onClose: () => void
 }
 
@@ -24,13 +27,19 @@ type ListItem =
   | { type: 'interaction-option'; option: InteractionOption }
   | { type: 'prompt'; promptType: LazyPromptType }
 
-export function LazyPromptModal({ process, processPath, onClose }: LazyPromptModalProps) {
+export function LazyPromptModal({ process, processPath, projectPath, onClose }: LazyPromptModalProps) {
   const { settings } = useSettings()
   const { showToast } = useToast()
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [optionsExpanded, setOptionsExpanded] = useState(true) // Expanded by default
   const modalRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+
+  // Confirmation modal state for creating agent when no session exists
+  const [showCreateAgentConfirm, setShowCreateAgentConfirm] = useState(false)
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
+  const [pendingPromptIsAttach, setPendingPromptIsAttach] = useState(false)
+  const [isCreatingAgent, setIsCreatingAgent] = useState(false)
 
   // Get interaction options from pending-interaction.json (async file read)
   const [interactionOptions, setInteractionOptions] = useState<InteractionOption[] | null>(null)
@@ -165,13 +174,15 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
           item.option
         )
         if (optionResult.success) {
-          const message = isAgentAction 
+          const message = isAgentAction
             ? `"${item.option.label}" sent to agent`
             : `"${item.option.label}" copied to clipboard`
           showToast(message, 'success')
           onClose()
         } else if (optionResult.noSession) {
-          showToast('No active agent session. Start an agent first.', 'info')
+          setPendingPrompt(generateLazyPrompt('select-option', process, processPath, item.option))
+          setPendingPromptIsAttach(false)
+          setShowCreateAgentConfirm(true)
         } else {
           showToast(optionResult.message || 'Failed to execute action', 'error')
         }
@@ -184,19 +195,59 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
           processPath
         )
         if (result.success) {
-          const message = isAgentAction 
+          const message = isAgentAction
             ? 'Prompt sent to agent!'
             : 'Prompt copied to clipboard!'
           showToast(message, 'success')
           onClose()
         } else if (result.noSession) {
-          showToast('No active agent session. Start an agent first.', 'info')
+          setPendingPrompt(generateLazyPrompt(item.promptType, process, processPath))
+          setPendingPromptIsAttach(item.promptType === 'continue-process')
+          setShowCreateAgentConfirm(true)
         } else {
           showToast(result.message || 'Failed to execute action', 'error')
         }
         break
     }
   }, [settings.lazyPrompts.defaultAction, process, processPath, onClose, showToast])
+
+  // Handle creating a new agent session and sending the pending prompt
+  const handleCreateAgentAndSend = useCallback(async () => {
+    if (!pendingPrompt) return
+
+    setIsCreatingAgent(true)
+    try {
+      const result = await agentService.createAgentSession(
+        settings.agent.defaultAgentType,
+        projectPath,
+        processPath,
+        { permissionMode: settings.agent.permissionMode }
+      )
+
+      if (result.success && result.session) {
+        // For continue-process, agentCreate with processPath already sends /process-continue
+        if (pendingPromptIsAttach) {
+          showToast('Agent started and prompt sent!', 'success')
+        } else {
+          const sendResult = await agentService.sendPrompt(result.session.id, pendingPrompt)
+          if (sendResult.success) {
+            showToast('Agent started and prompt sent!', 'success')
+          } else {
+            showToast('Agent started but failed to send prompt', 'error')
+          }
+        }
+        onClose()
+      } else {
+        showToast(result.error || 'Failed to start agent session', 'error')
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to start agent', 'error')
+    } finally {
+      setIsCreatingAgent(false)
+      setShowCreateAgentConfirm(false)
+      setPendingPrompt(null)
+    }
+  }, [pendingPrompt, pendingPromptIsAttach, settings.agent, projectPath, processPath, onClose, showToast])
 
   // Handle backdrop click
   const handleBackdropClick = useCallback((e: React.MouseEvent) => {
@@ -441,6 +492,22 @@ export function LazyPromptModal({ process, processPath, onClose }: LazyPromptMod
           </span>
         </div>
       </div>
+      {/* Confirmation modal for creating agent */}
+      <ConfirmationModal
+        isOpen={showCreateAgentConfirm}
+        title="No Active Agent"
+        message="No agent is running for this process. Would you like to start a new agent and send the selected prompt?"
+        confirmLabel="Start Agent"
+        cancelLabel="Cancel"
+        variant="info"
+        loading={isCreatingAgent}
+        onConfirm={handleCreateAgentAndSend}
+        onCancel={() => {
+          setShowCreateAgentConfirm(false)
+          setPendingPrompt(null)
+          setPendingPromptIsAttach(false)
+        }}
+      />
     </div>,
     document.body
   )

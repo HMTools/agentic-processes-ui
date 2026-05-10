@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import type { AgentSession, AgentType } from '../types'
+import type { AgentSession, AgentType, ExternalSession } from '../types'
 import * as agentService from '../services/agentService'
 
 interface UseAgentSessionsOptions {
@@ -30,6 +30,14 @@ interface UseAgentSessionsReturn {
   refresh: () => Promise<void>
   /** Check if there's an active session */
   hasActiveSession: boolean
+  /** External sessions detected (keyed by processPath) */
+  externalSessions: Record<string, ExternalSession>
+  /** Whether external session discovery is in progress */
+  isDiscovering: boolean
+  /** Scan for external Claude Code sessions */
+  discoverExternal: (activeProcesses: Array<{ path: string; sessionId?: string; projectPaths?: string[] }>) => Promise<void>
+  /** Migrate an external session into this app */
+  migrateSession: (processPath: string, workingDirectory: string, options?: { permissionMode?: string }) => Promise<AgentSession | null>
 }
 
 export function useAgentSessions(options: UseAgentSessionsOptions = {}): UseAgentSessionsReturn {
@@ -38,6 +46,8 @@ export function useAgentSessions(options: UseAgentSessionsOptions = {}): UseAgen
   const [sessions, setSessions] = useState<AgentSession[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [externalSessions, setExternalSessions] = useState<Record<string, ExternalSession>>({})
+  const [isDiscovering, setIsDiscovering] = useState(false)
 
   // Fetch sessions
   const refresh = useCallback(async () => {
@@ -165,6 +175,61 @@ export function useAgentSessions(options: UseAgentSessionsOptions = {}): UseAgen
   // Check if there's an active session
   const hasActiveSession = useMemo(() => activeSession !== null, [activeSession])
 
+  // Discover external Claude Code sessions
+  const discoverExternal = useCallback(async (
+    activeProcesses: Array<{ path: string; sessionId?: string; projectPaths?: string[] }>
+  ) => {
+    setIsDiscovering(true)
+    try {
+      const result = await agentService.discoverExternalSessions(activeProcesses)
+      setExternalSessions(result)
+    } catch (err) {
+      console.error('Failed to discover external sessions:', err)
+    } finally {
+      setIsDiscovering(false)
+    }
+  }, [])
+
+  // Migrate an external session into this app
+  const migrateSession = useCallback(async (
+    migrationProcessPath: string,
+    workingDirectory: string,
+    options?: { permissionMode?: string }
+  ): Promise<AgentSession | null> => {
+    const externalSession = externalSessions[migrationProcessPath]
+    if (!externalSession) {
+      setError('No external session found for this process')
+      return null
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const result = await agentService.migrateExternalSession(externalSession, workingDirectory, options)
+
+      if (result.success && result.session) {
+        // Add the new session to our list
+        setSessions(prev => [...prev, result.session!])
+        // Remove the external session entry
+        setExternalSessions(prev => {
+          const next = { ...prev }
+          delete next[migrationProcessPath]
+          return next
+        })
+        return result.session
+      } else {
+        setError(result.error || 'Failed to migrate session')
+        return null
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to migrate session')
+      return null
+    } finally {
+      setIsLoading(false)
+    }
+  }, [externalSessions])
+
   return {
     sessions,
     activeSession,
@@ -175,6 +240,10 @@ export function useAgentSessions(options: UseAgentSessionsOptions = {}): UseAgen
     sendPrompt,
     sendPromptToActiveSession,
     refresh,
-    hasActiveSession
+    hasActiveSession,
+    externalSessions,
+    isDiscovering,
+    discoverExternal,
+    migrateSession
   }
 }

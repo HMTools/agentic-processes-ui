@@ -219,6 +219,18 @@ function MarkdownView({ template }: { template: ProcessTemplate | StepTemplate }
               )
             }
             
+            if (codeContent.includes('\n')) {
+              return (
+                <div className="my-4 rounded-lg border border-border overflow-hidden not-prose">
+                  <pre className="bg-surface p-4 overflow-x-auto">
+                    <code className="text-xs font-mono text-text-secondary leading-relaxed" {...props}>
+                      {children}
+                    </code>
+                  </pre>
+                </div>
+              )
+            }
+
             // Inline code
             return (
               <code className="text-accent bg-surface/80 px-1.5 py-0.5 rounded text-xs font-mono border border-border/50" {...props}>

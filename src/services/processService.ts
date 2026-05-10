@@ -1,5 +1,29 @@
 import type { ProcessInstance, ProcessSummary, ProcessStatus, StepStatus, StepId, ProcessStep } from '../types'
 
+/**
+ * Normalize step status values from hyphenated format (as written by agents)
+ * to underscore format (as defined in TypeScript types).
+ * e.g., "in-progress" → "in_progress", "awaiting-approval" → "awaiting_approval"
+ */
+function normalizeStepStatus(status: string): StepStatus {
+  return status.replace(/-/g, '_') as StepStatus
+}
+
+/**
+ * Normalize a ProcessInstance to ensure status values match TypeScript type definitions.
+ * Agents may write hyphenated statuses ("in-progress") but types use underscores ("in_progress").
+ */
+export function normalizeProcessInstance(process: ProcessInstance): ProcessInstance {
+  return {
+    ...process,
+    status: process.status.replace(/-/g, '_') as ProcessStatus,
+    steps: process.steps.map(step => ({
+      ...step,
+      status: normalizeStepStatus(step.status)
+    }))
+  }
+}
+
 // Parse the folder status from the path
 function getFolderStatus(path: string): 'active' | 'completed' | 'failed' {
   if (path.includes('/active/') || path.includes('\\active\\')) return 'active'
