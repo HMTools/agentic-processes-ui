@@ -415,6 +415,96 @@ export interface LogFile {
 export type ProcessLog = LogFile
 
 // ============================================================================
+// Q&A Session types (qa-session.json)
+// ============================================================================
+
+/**
+ * Status of an individual question in a Q&A session
+ */
+export type QuestionStatus = 'unanswered' | 'answered' | 'refined' | 'completed'
+
+/**
+ * Overall status of a Q&A session
+ * Derived from individual question statuses:
+ * - 'pending': All questions unanswered
+ * - 'partial': Some questions answered, some unanswered
+ * - 'completed': All questions answered or completed
+ */
+export type SessionStatus = 'pending' | 'partial' | 'completed'
+
+/**
+ * A single iteration of an answer to a question
+ */
+export interface AnswerIteration {
+  /** The answer text */
+  answer: string
+
+  /** When this answer iteration was provided (ISO-8601 format) */
+  timestamp: ISOTimestamp
+
+  /** Iteration number (1 for first answer, increments with refinements) */
+  iteration: number
+}
+
+/**
+ * A question in a Q&A session with status tracking
+ */
+export interface QASessionQuestion {
+  /** Unique identifier for this question */
+  id: string
+
+  /** Topic or category of the question */
+  topic: string
+
+  /** The actual question text */
+  question: string
+
+  /** Whether this question must be answered to proceed */
+  priority: 'required' | 'optional'
+
+  /** Why this information is needed */
+  context?: string
+
+  /** Available options if this is a multiple-choice question */
+  options?: string[]
+
+  /** Current status of this question */
+  status: QuestionStatus
+
+  /** History of all answer iterations for this question */
+  answerHistory: AnswerIteration[]
+}
+
+/**
+ * Q&A session file structure
+ * Stored as qa-session.json in process directory
+ */
+export interface QASessionFile {
+  /** File type identifier */
+  type: 'qa-session'
+
+  /** ID of the step this Q&A session belongs to */
+  stepId: string
+
+  /** Name of the step this Q&A session belongs to */
+  stepName: string
+
+  /** When this Q&A session was created (ISO-8601 format) */
+  timestamp: ISOTimestamp
+
+  /** All questions in this session with their current status */
+  questions: QASessionQuestion[]
+
+  /**
+   * Overall session status (derived from question statuses)
+   * - 'pending': All questions are 'unanswered'
+   * - 'partial': Mix of answered and unanswered questions
+   * - 'completed': All questions are 'answered', 'refined', or 'completed'
+   */
+  status: SessionStatus
+}
+
+// ============================================================================
 // Template types (for Templates management screen)
 // ============================================================================
 

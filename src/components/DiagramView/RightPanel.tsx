@@ -1,24 +1,27 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import type { ProcessMemory, ProcessLog } from '../../types'
+import type { ProcessMemory, ProcessLog, QASessionFile } from '../../types'
 import { MemoryView } from './MemoryView'
 import { LogsView } from './LogsView'
 import { FilesView } from './FilesView'
+import { QASessionView } from '../QASession'
 
 type TabId = 'memory' | 'logs' | 'files'
 
 interface RightPanelProps {
   memory: ProcessMemory | null
   log: ProcessLog | null
+  qaSession: QASessionFile | null
   memoryLoading?: boolean
   logLoading?: boolean
   processPath: string
+  onQASessionUpdate: () => void
 }
 
 const MIN_WIDTH = 280
 const MAX_WIDTH = 800
 const DEFAULT_WIDTH = 384
 
-export function RightPanel({ memory, log, memoryLoading, logLoading, processPath }: RightPanelProps) {
+export function RightPanel({ memory, log, qaSession, memoryLoading, logLoading, processPath, onQASessionUpdate }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('memory')
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -98,8 +101,11 @@ export function RightPanel({ memory, log, memoryLoading, logLoading, processPath
     }
   ]
 
+  // Show Q&A session when it exists (takes priority over pending interaction)
+  const hasQASession = qaSession !== null
+
   return (
-    <div 
+    <div
       ref={panelRef}
       className={`flex flex-col bg-background relative ${
         isCollapsed ? 'w-10' : ''
@@ -123,6 +129,17 @@ export function RightPanel({ memory, log, memoryLoading, logLoading, processPath
 
       {/* Left border (when not resizing) */}
       <div className="absolute left-0 top-0 bottom-0 w-px bg-border pointer-events-none" />
+
+      {/* Q&A Session (appears above tabs when present) */}
+      {hasQASession && !isCollapsed && (
+        <div className="flex-shrink-0 border-b border-border" style={{ maxHeight: '40vh', minHeight: '200px' }}>
+          <QASessionView
+            processPath={processPath}
+            session={qaSession}
+            onSessionUpdate={onQASessionUpdate}
+          />
+        </div>
+      )}
 
       {/* Tab Header */}
       <div className="flex-shrink-0 flex items-center justify-between px-2 h-10 bg-surface border-b border-border">

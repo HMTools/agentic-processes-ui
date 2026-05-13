@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Template loading (unified from ~/.claude/agentic-processes/)
   loadProcessTemplates: () => ipcRenderer.invoke("load-process-templates"),
   loadStepTemplates: () => ipcRenderer.invoke("load-step-templates"),
+  // Q&A Session operations
+  readQASession: (processPath) => ipcRenderer.invoke("read-qa-session", processPath),
+  answerQuestion: (processPath, questionId, answer) => ipcRenderer.invoke("answer-question", processPath, questionId, answer),
+  completeQuestion: (processPath, questionId) => ipcRenderer.invoke("complete-question", processPath, questionId),
+  getQASessionStatus: (processPath) => ipcRenderer.invoke("get-qa-session-status", processPath),
   // Event listeners
   onProcessUpdate: (callback) => {
     const subscription = (_event, data) => callback(data);
@@ -55,6 +60,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("pending-interaction-update", subscription);
     return () => {
       ipcRenderer.removeListener("pending-interaction-update", subscription);
+    };
+  },
+  onQASessionUpdate: (callback) => {
+    const subscription = (_event, data) => callback(data);
+    ipcRenderer.on("qa-session-update", subscription);
+    return () => {
+      ipcRenderer.removeListener("qa-session-update", subscription);
     };
   },
   onWatcherError: (callback) => {

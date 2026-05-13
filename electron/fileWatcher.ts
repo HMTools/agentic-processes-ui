@@ -4,7 +4,7 @@ import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 
-export type FileType = 'process' | 'memory' | 'log' | 'pending-interaction'
+export type FileType = 'process' | 'memory' | 'log' | 'pending-interaction' | 'qa-session'
 
 export type WatcherCallback = (
   event: 'added' | 'changed' | 'removed', 
@@ -75,6 +75,7 @@ export async function createFileWatcher(
     if (normalized.endsWith('/memory.json')) return 'memory'
     if (normalized.endsWith('/log.json')) return 'log'
     if (normalized.endsWith('/pending-interaction.json')) return 'pending-interaction'
+    if (normalized.endsWith('/qa-session.json')) return 'qa-session'
     return null
   }
 

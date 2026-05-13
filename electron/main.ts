@@ -164,6 +164,13 @@ ipcMain.handle('start-watching', async (_event, projectPath: string) => {
               pendingInteraction: data.content
             })
             break
+          case 'qa-session':
+            mainWindow?.webContents.send('qa-session-update', {
+              event,
+              processPath: data.processPath,
+              qaSession: data.content
+            })
+            break
         }
       },
       (error) => {
@@ -358,6 +365,184 @@ ipcMain.handle('delete-process-instance', async (_event, processPath: string) =>
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     }
+  }
+})
+
+// ============================================================================
+// Q&A Session IPC Handlers
+// ============================================================================
+
+// Read qa-session.json for a process
+ipcMain.handle('read-qa-session', async (_event, processPath: string) => {
+  try {
+    const processDir = dirname(processPath)
+    const qaSessionPath = join(processDir, 'qa-session.json')
+
+    // Validate path is within agentic-processes
+    if (!processDir.includes('agentic-processes')) {
+      console.error('Invalid path: not in agentic-processes')
+      return null
+    }
+
+    if (!existsSync(qaSessionPath)) {
+      return null
+    }
+
+    const content = await readFile(qaSessionPath, 'utf-8')
+    return JSON.parse(content)
+  } catch (error) {
+    console.error('Error reading qa-session.json:', error)
+    return null
+  }
+})
+
+// Submit an answer to a question
+ipcMain.handle('answer-question', async (_event, processPath: string, questionId: string, answer: string) => {
+  try {
+    const processDir = dirname(processPath)
+
+    // Validate path is within agentic-processes
+    if (!processDir.includes('agentic-processes')) {
+      return { success: false, error: 'Invalid path' }
+    }
+
+    // Validate inputs
+    if (!questionId || typeof questionId !== 'string') {
+      return { success: false, error: 'Invalid question ID' }
+    }
+
+    if (!answer || typeof answer !== 'string') {
+      return { success: false, error: 'Invalid answer' }
+    }
+
+    // Sanitize inputs for command execution
+    const sanitizedQuestionId = questionId.replace(/[^\w-]/g, '')
+    const sanitizedAnswer = answer.replace(/[\r\n]+/g, ' ').trim()
+
+    // Execute Python script to update Q&A answer via process_manager.py
+    // TODO: Make script path configurable in settings
+    const { spawn } = await import('child_process')
+    const pythonProcess = spawn('python3', [
+      'scripts/process_manager.py',
+      'update-qa-answer',
+      processPath,
+      sanitizedQuestionId,
+      sanitizedAnswer
+    ], {
+      cwd: join('C:', 'Projects', 'HM', 'agentic-processes')
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    pythonProcess.stdout.on('data', (data) => {
+      stdout += data.toString()
+    })
+
+    pythonProcess.stderr.on('data', (data) => {
+      stderr += data.toString()
+    })
+
+    return new Promise((resolve) => {
+      pythonProcess.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true })
+        } else {
+          console.error(`Python script failed with code ${code}:`, stderr)
+          resolve({ success: false, error: 'Failed to update answer' })
+        }
+      })
+    })
+  } catch (error) {
+    console.error('Error answering question:', error)
+    return {
+      success: false,
+      error: 'Internal error'
+    }
+  }
+})
+
+// Mark a question as complete
+ipcMain.handle('complete-question', async (_event, processPath: string, questionId: string) => {
+  try {
+    const processDir = dirname(processPath)
+
+    // Validate path is within agentic-processes
+    if (!processDir.includes('agentic-processes')) {
+      return { success: false, error: 'Invalid path' }
+    }
+
+    // Validate inputs
+    if (!questionId || typeof questionId !== 'string') {
+      return { success: false, error: 'Invalid question ID' }
+    }
+
+    // Sanitize input for command execution
+    const sanitizedQuestionId = questionId.replace(/[^\w-]/g, '')
+
+    // Execute Python script to complete question via process_manager.py
+    // TODO: Make script path configurable in settings
+    const { spawn } = await import('child_process')
+    const pythonProcess = spawn('python3', [
+      'scripts/process_manager.py',
+      'complete-qa-question',
+      processPath,
+      sanitizedQuestionId
+    ], {
+      cwd: join('C:', 'Projects', 'HM', 'agentic-processes')
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    pythonProcess.stdout.on('data', (data) => {
+      stdout += data.toString()
+    })
+
+    pythonProcess.stderr.on('data', (data) => {
+      stderr += data.toString()
+    })
+
+    return new Promise((resolve) => {
+      pythonProcess.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true })
+        } else {
+          console.error(`Python script failed with code ${code}:`, stderr)
+          resolve({ success: false, error: 'Failed to complete question' })
+        }
+      })
+    })
+  } catch (error) {
+    console.error('Error completing question:', error)
+    return {
+      success: false,
+      error: 'Internal error'
+    }
+  }
+})
+
+// Get Q&A session status
+ipcMain.handle('get-qa-session-status', async (_event, processPath: string) => {
+  try {
+    const processDir = dirname(processPath)
+    const qaSessionPath = join(processDir, 'qa-session.json')
+
+    // Validate path is within agentic-processes
+    if (!processDir.includes('agentic-processes')) {
+      return null
+    }
+
+    if (!existsSync(qaSessionPath)) {
+      return null
+    }
+
+    const content = await readFile(qaSessionPath, 'utf-8')
+    const session = JSON.parse(content)
+    return session.status || null
+  } catch (error) {
+    console.error('Error reading qa-session status:', error)
+    return null
   }
 })
 

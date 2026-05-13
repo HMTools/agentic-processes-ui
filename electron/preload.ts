@@ -26,6 +26,12 @@ export interface PendingInteractionUpdateEvent {
   pendingInteraction?: unknown
 }
 
+export interface QASessionUpdateEvent {
+  event: 'added' | 'changed' | 'removed'
+  processPath: string
+  qaSession?: unknown
+}
+
 export interface FileContentUpdateEvent {
   filePath: string
   content: string | null
@@ -142,6 +148,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('load-process-templates'),
   loadStepTemplates: () =>
     ipcRenderer.invoke('load-step-templates'),
+
+  // Q&A Session operations
+  readQASession: (processPath: string) =>
+    ipcRenderer.invoke('read-qa-session', processPath),
+  answerQuestion: (processPath: string, questionId: string, answer: string) =>
+    ipcRenderer.invoke('answer-question', processPath, questionId, answer) as Promise<{ success: boolean; error?: string }>,
+  completeQuestion: (processPath: string, questionId: string) =>
+    ipcRenderer.invoke('complete-question', processPath, questionId) as Promise<{ success: boolean; error?: string }>,
+  getQASessionStatus: (processPath: string) =>
+    ipcRenderer.invoke('get-qa-session-status', processPath),
   
   // Event listeners
   onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => {
@@ -181,6 +197,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('pending-interaction-update', subscription)
     return () => {
       ipcRenderer.removeListener('pending-interaction-update', subscription)
+    }
+  },
+
+  onQASessionUpdate: (callback: (event: QASessionUpdateEvent) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: QASessionUpdateEvent) => callback(data)
+    ipcRenderer.on('qa-session-update', subscription)
+    return () => {
+      ipcRenderer.removeListener('qa-session-update', subscription)
     }
   },
 
@@ -295,10 +319,16 @@ declare global {
       deleteProcessInstance: (processPath: string) => Promise<{ success: boolean; error?: string }>
       loadProcessTemplates: () => Promise<unknown[]>
       loadStepTemplates: () => Promise<unknown[]>
+      // Q&A Session API
+      readQASession: (processPath: string) => Promise<unknown | null>
+      answerQuestion: (processPath: string, questionId: string, answer: string) => Promise<{ success: boolean; error?: string }>
+      completeQuestion: (processPath: string, questionId: string) => Promise<{ success: boolean; error?: string }>
+      getQASessionStatus: (processPath: string) => Promise<string | null>
       onProcessUpdate: (callback: (event: ProcessUpdateEvent) => void) => () => void
       onMemoryUpdate: (callback: (event: MemoryUpdateEvent) => void) => () => void
       onLogUpdate: (callback: (event: LogUpdateEvent) => void) => () => void
       onPendingInteractionUpdate: (callback: (event: PendingInteractionUpdateEvent) => void) => () => void
+      onQASessionUpdate: (callback: (event: QASessionUpdateEvent) => void) => () => void
       onFileContentUpdate: (callback: (event: FileContentUpdateEvent) => void) => () => void
       onWatcherError: (callback: (event: WatcherErrorEvent) => void) => () => void
       // Clipboard API

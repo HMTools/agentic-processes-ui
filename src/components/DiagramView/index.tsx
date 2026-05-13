@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import type { ProcessInstance, ProcessStep, ProcessMemory, ProcessLog, ChildProcessRef, ParentProcessRef, ExternalSession } from '../../types'
+import type { ProcessInstance, ProcessStep, ProcessMemory, ProcessLog, ChildProcessRef, ParentProcessRef, ExternalSession, QASessionFile } from '../../types'
 import { ProcessDiagram } from './ProcessDiagram'
 import { RightPanel } from './RightPanel'
 import { Alert } from '../Alert'
@@ -11,6 +11,7 @@ import { useToast } from '../Toast'
 import { getStatusColor, formatTimestamp } from '../../services/processService'
 import { useAgentSessions } from '../../hooks/useAgentSessions'
 import { useSettings } from '../../hooks/useSettings'
+import { readQASession } from '../../services/qaSessionService'
 
 interface DiagramViewProps {
   process: ProcessInstance
@@ -37,6 +38,7 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
   const [selectedStep, setSelectedStep] = useState<ProcessStep | null>(null)
   const [memory, setMemory] = useState<ProcessMemory | null>(null)
   const [log, setLog] = useState<ProcessLog | null>(null)
+  const [qaSession, setQASession] = useState<QASessionFile | null>(null)
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [logLoading, setLogLoading] = useState(false)
   const [alertMessage, setAlertMessage] = useState<string | null>(null)
@@ -80,7 +82,7 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
   const completedSteps = process.steps.filter(s => s.status === 'completed').length
   const progress = Math.round((completedSteps / process.steps.length) * 100)
 
-  // Load memory and log files
+  // Load memory, log, and Q&A session files
   const loadProcessFiles = useCallback(async () => {
     if (!isElectron() || !processPath) return
 
@@ -106,6 +108,15 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
       setLog(null)
     } finally {
       setLogLoading(false)
+    }
+
+    // Load qa-session.json
+    try {
+      const qaSessionData = await readQASession(processPath)
+      setQASession(qaSessionData)
+    } catch (error) {
+      console.error('Error loading Q&A session:', error)
+      setQASession(null)
     }
   }, [processPath])
 
@@ -148,6 +159,34 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
     })
 
     return unsubscribe
+  }, [processPath])
+
+  // Subscribe to real-time Q&A session updates
+  useEffect(() => {
+    if (!isElectron() || !processPath) return
+
+    const unsubscribe = window.electronAPI.onQASessionUpdate(({ event, processPath: updatedPath, qaSession: qaSessionData }) => {
+      // Only update if this is for the current process
+      if (updatedPath === processPath) {
+        if (event === 'removed') {
+          setQASession(null)
+        } else {
+          setQASession(qaSessionData as QASessionFile | null)
+        }
+      }
+    })
+
+    return unsubscribe
+  }, [processPath])
+
+  // Handle Q&A session updates from child components
+  const handleQASessionUpdate = useCallback(async () => {
+    try {
+      const qaSessionData = await readQASession(processPath)
+      setQASession(qaSessionData)
+    } catch (error) {
+      console.error('Error refreshing Q&A session:', error)
+    }
   }, [processPath])
 
   // Resolve processPath — paths are now absolute, so just ensure process.json suffix
@@ -408,13 +447,15 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
             )}
           </div>
 
-          {/* Right Panel with Memory, Logs, and Files */}
+          {/* Right Panel with Memory, Logs, Files, and Q&A Session */}
           <RightPanel
             memory={memory}
             log={log}
+            qaSession={qaSession}
             memoryLoading={memoryLoading}
             logLoading={logLoading}
             processPath={processPath}
+            onQASessionUpdate={handleQASessionUpdate}
           />
         </div>
 

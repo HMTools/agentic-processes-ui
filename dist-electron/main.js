@@ -52,6 +52,7 @@ async function createFileWatcher(_projectPath, callback, onError) {
     if (normalized.endsWith("/memory.json")) return "memory";
     if (normalized.endsWith("/log.json")) return "log";
     if (normalized.endsWith("/pending-interaction.json")) return "pending-interaction";
+    if (normalized.endsWith("/qa-session.json")) return "qa-session";
     return null;
   };
   const getProcessPath = (filePath) => {
@@ -818,6 +819,13 @@ ipcMain.handle("start-watching", async (_event, projectPath) => {
               pendingInteraction: data.content
             });
             break;
+          case "qa-session":
+            mainWindow?.webContents.send("qa-session-update", {
+              event,
+              processPath: data.processPath,
+              qaSession: data.content
+            });
+            break;
         }
       },
       (error) => {
@@ -970,6 +978,137 @@ ipcMain.handle("delete-process-instance", async (_event, processPath) => {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error"
     };
+  }
+});
+ipcMain.handle("read-qa-session", async (_event, processPath) => {
+  try {
+    const processDir = dirname(processPath);
+    const qaSessionPath = join(processDir, "qa-session.json");
+    if (!processDir.includes("agentic-processes")) {
+      console.error("Invalid path: not in agentic-processes");
+      return null;
+    }
+    if (!existsSync(qaSessionPath)) {
+      return null;
+    }
+    const content = await readFile(qaSessionPath, "utf-8");
+    return JSON.parse(content);
+  } catch (error) {
+    console.error("Error reading qa-session.json:", error);
+    return null;
+  }
+});
+ipcMain.handle("answer-question", async (_event, processPath, questionId, answer) => {
+  try {
+    const processDir = dirname(processPath);
+    if (!processDir.includes("agentic-processes")) {
+      return { success: false, error: "Invalid path" };
+    }
+    if (!questionId || typeof questionId !== "string") {
+      return { success: false, error: "Invalid question ID" };
+    }
+    if (!answer || typeof answer !== "string") {
+      return { success: false, error: "Invalid answer" };
+    }
+    const sanitizedQuestionId = questionId.replace(/[^\w-]/g, "");
+    const sanitizedAnswer = answer.replace(/[\r\n]+/g, " ").trim();
+    const { spawn: spawn2 } = await import("child_process");
+    const pythonProcess = spawn2("python3", [
+      "scripts/process_manager.py",
+      "update-qa-answer",
+      processPath,
+      sanitizedQuestionId,
+      sanitizedAnswer
+    ], {
+      cwd: join("C:", "Projects", "HM", "agentic-processes")
+    });
+    let stdout = "";
+    let stderr = "";
+    pythonProcess.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+    pythonProcess.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+    return new Promise((resolve) => {
+      pythonProcess.on("close", (code) => {
+        if (code === 0) {
+          resolve({ success: true });
+        } else {
+          console.error(`Python script failed with code ${code}:`, stderr);
+          resolve({ success: false, error: "Failed to update answer" });
+        }
+      });
+    });
+  } catch (error) {
+    console.error("Error answering question:", error);
+    return {
+      success: false,
+      error: "Internal error"
+    };
+  }
+});
+ipcMain.handle("complete-question", async (_event, processPath, questionId) => {
+  try {
+    const processDir = dirname(processPath);
+    if (!processDir.includes("agentic-processes")) {
+      return { success: false, error: "Invalid path" };
+    }
+    if (!questionId || typeof questionId !== "string") {
+      return { success: false, error: "Invalid question ID" };
+    }
+    const sanitizedQuestionId = questionId.replace(/[^\w-]/g, "");
+    const { spawn: spawn2 } = await import("child_process");
+    const pythonProcess = spawn2("python3", [
+      "scripts/process_manager.py",
+      "complete-qa-question",
+      processPath,
+      sanitizedQuestionId
+    ], {
+      cwd: join("C:", "Projects", "HM", "agentic-processes")
+    });
+    let stdout = "";
+    let stderr = "";
+    pythonProcess.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+    pythonProcess.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+    return new Promise((resolve) => {
+      pythonProcess.on("close", (code) => {
+        if (code === 0) {
+          resolve({ success: true });
+        } else {
+          console.error(`Python script failed with code ${code}:`, stderr);
+          resolve({ success: false, error: "Failed to complete question" });
+        }
+      });
+    });
+  } catch (error) {
+    console.error("Error completing question:", error);
+    return {
+      success: false,
+      error: "Internal error"
+    };
+  }
+});
+ipcMain.handle("get-qa-session-status", async (_event, processPath) => {
+  try {
+    const processDir = dirname(processPath);
+    const qaSessionPath = join(processDir, "qa-session.json");
+    if (!processDir.includes("agentic-processes")) {
+      return null;
+    }
+    if (!existsSync(qaSessionPath)) {
+      return null;
+    }
+    const content = await readFile(qaSessionPath, "utf-8");
+    const session = JSON.parse(content);
+    return session.status || null;
+  } catch (error) {
+    console.error("Error reading qa-session status:", error);
+    return null;
   }
 });
 ipcMain.handle("load-process-templates", async () => {
