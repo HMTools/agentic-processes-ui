@@ -111,6 +111,7 @@ function App() {
   const [currentView, setCurrentView] = useState<AppView>('dashboard')
   const [selectedProcessPath, setSelectedProcessPath] = useState<string | null>(null)
   const [navigatedFromPath, setNavigatedFromPath] = useState<string | null>(null)
+  const [overviewInitialPaths, setOverviewInitialPaths] = useState<string[] | null>(null)
   const selectedProcess = selectedProcessPath ? getProcess(selectedProcessPath) : null
 
   // New Process Modal state
@@ -159,6 +160,17 @@ function App() {
     setNavigatedFromPath(null)
   }, [])
 
+  const handleOpenInOverview = useCallback((paths: string[]) => {
+    setCurrentView('processes-overview')
+    setOverviewInitialPaths(paths)
+    setSelectedProcessPath(null)
+    setNavigatedFromPath(null)
+  }, [])
+
+  const handlePopOutOverview = useCallback(() => {
+    window.electronAPI.openOverviewWindow(projectPaths)
+  }, [projectPaths])
+
   // New Process Modal handlers
   const handleOpenNewProcess = useCallback(() => {
     setPreSelectedTemplate(null)
@@ -173,6 +185,16 @@ function App() {
   const handleCloseNewProcessModal = useCallback(() => {
     setShowNewProcessModal(false)
     setPreSelectedTemplate(null)
+  }, [])
+
+  // Listen for navigation requests from external overview windows
+  useEffect(() => {
+    const unsub = window.electronAPI.onNavigateToProcessRequest((processPath: string) => {
+      setCurrentView('dashboard')
+      setSelectedProcessPath(processPath)
+      setNavigatedFromPath(null)
+    })
+    return unsub
   }, [])
 
   // Global Ctrl+Shift+N keyboard shortcut to open New Process modal
@@ -249,6 +271,9 @@ function App() {
                 getProcess={getProcess}
                 onNavigateToProcess={handleNavigateToProcess}
                 onNewProcess={projectPaths.length > 0 ? handleOpenNewProcess : undefined}
+                onPopOut={handlePopOutOverview}
+                initialPaths={overviewInitialPaths}
+                onInitialPathsConsumed={() => setOverviewInitialPaths(null)}
               />
             ) : currentView === 'agent-sessions' ? (
               <AgentSessions
@@ -277,6 +302,7 @@ function App() {
                 processPath={selectedProcessPath}
                 onBack={handleBackToDashboard}
                 onNavigateToProcess={handleNavigateToProcess}
+                onOpenInOverview={handleOpenInOverview}
                 getProcess={getProcess}
                 navigatedFromPath={navigatedFromPath}
                 externalSession={selectedProcessPath ? externalSessions[selectedProcessPath] || null : null}

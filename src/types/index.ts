@@ -301,12 +301,30 @@ export interface WorkspaceConfig {
 export interface LazyPromptsSettings {
   enabled: boolean
   defaultAction: 'clipboard' | 'agent-apply'
+  deliveryMode: 'pty' | 'channel'
 }
 
 export interface AppSettings {
   lazyPrompts: LazyPromptsSettings
   agent: AgentSettings
   workspace: WorkspaceConfig
+}
+
+// ============================================================================
+// Channel types
+// ============================================================================
+
+export interface ChannelEndpoint {
+  port: number
+  parentPid: number
+  startedAt: string
+}
+
+export interface ChannelReply {
+  correlationId: string
+  type: 'ack' | 'result' | 'error'
+  message: string
+  timestamp: string
 }
 
 // ============================================================================
@@ -602,7 +620,6 @@ export interface StepOutput {
 
 export interface StepGuidance {
   prerequisites?: string[]
-  mandatoryComponents?: string[]
   userGuidelines?: string[]
   specificActions?: string[]
   files?: {
@@ -652,7 +669,6 @@ export interface StepTemplate {
   approvalRequired?: boolean
   complexityScale?: Record<string, { range: string; description: string }>
   dependencies?: {
-    requiredComponents?: string[]
     requiredFiles?: string[]
     requiredTools?: string[]
   }

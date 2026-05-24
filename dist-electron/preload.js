@@ -109,6 +109,52 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Clipboard
   clipboardReadText: () => ipcRenderer.invoke("clipboard:read-text"),
   clipboardWriteText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
+  // ============================================================================
+  // Channel API
+  // ============================================================================
+  channelIsInstalled: () => ipcRenderer.invoke("channel:is-installed"),
+  channelGetInstalledPath: () => ipcRenderer.invoke("channel:get-installed-path"),
+  channelInstall: () => ipcRenderer.invoke("channel:install"),
+  channelUninstall: () => ipcRenderer.invoke("channel:uninstall"),
+  channelList: () => ipcRenderer.invoke("channel:list"),
+  channelGetForPid: (pid) => ipcRenderer.invoke("channel:get-for-pid", pid),
+  channelSendPrompt: (port, prompt, meta) => ipcRenderer.invoke("channel:send-prompt", port, prompt, meta),
+  channelCheckHealth: (port) => ipcRenderer.invoke("channel:check-health", port),
+  onChannelAvailable: (callback) => {
+    const subscription = (_event, data) => callback(data);
+    ipcRenderer.on("channel:available", subscription);
+    return () => {
+      ipcRenderer.removeListener("channel:available", subscription);
+    };
+  },
+  onChannelRemoved: (callback) => {
+    const subscription = (_event, data) => callback(data);
+    ipcRenderer.on("channel:removed", subscription);
+    return () => {
+      ipcRenderer.removeListener("channel:removed", subscription);
+    };
+  },
+  onChannelReply: (callback) => {
+    const subscription = (_event, data) => callback(data);
+    ipcRenderer.on("channel:reply", subscription);
+    return () => {
+      ipcRenderer.removeListener("channel:reply", subscription);
+    };
+  },
+  // ============================================================================
+  // Overview Window API
+  // ============================================================================
+  openOverviewWindow: (projectPaths) => ipcRenderer.invoke("overview:open-window", projectPaths),
+  getOverviewWindowParams: () => ipcRenderer.invoke("overview:get-window-params"),
+  getCurrentProcesses: () => ipcRenderer.invoke("overview:get-current-processes"),
+  navigateToProcessInMain: (processPath) => ipcRenderer.invoke("overview:navigate-to-process", processPath),
+  onNavigateToProcessRequest: (callback) => {
+    const subscription = (_event, processPath) => callback(processPath);
+    ipcRenderer.on("navigate-to-process-request", subscription);
+    return () => {
+      ipcRenderer.removeListener("navigate-to-process-request", subscription);
+    };
+  },
   // Agent event listeners
   onAgentOutput: (callback) => {
     const subscription = (_event, data) => callback(data);

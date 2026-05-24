@@ -9,6 +9,7 @@ export type LayoutPreset = '1' | '2v' | '2h' | '4'
 
 interface TileSlot {
   processPath: string | null
+  navigatedFromPath: string | null
 }
 
 interface TileManagerProps {
@@ -17,6 +18,7 @@ interface TileManagerProps {
   /** Paths requested to be opened in tiles */
   openRequests: { path: string; addNew: boolean }[]
   onRequestHandled: () => void
+  onPopOut?: () => void
 }
 
 const DIVIDER_SIZE = 4
@@ -25,10 +27,11 @@ export function TileManager({
   getProcess,
   onNavigateToProcess,
   openRequests,
-  onRequestHandled
+  onRequestHandled,
+  onPopOut
 }: TileManagerProps) {
   const [layout, setLayout] = useState<LayoutPreset>('1')
-  const [tiles, setTiles] = useState<TileSlot[]>([{ processPath: null }])
+  const [tiles, setTiles] = useState<TileSlot[]>([{ processPath: null, navigatedFromPath: null }])
   const [activeTileIndex, setActiveTileIndex] = useState(0)
 
   // Resize state
@@ -37,46 +40,44 @@ export function TileManager({
   const [isResizing, setIsResizing] = useState<'primary' | 'secondary' | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Handle open requests from tree
   useEffect(() => {
     if (openRequests.length === 0) return
-    const req = openRequests[openRequests.length - 1]
 
-    if (req.addNew) {
-      // If process is already open in a tile, just activate it
-      const existingIndex = tiles.findIndex(t => t.processPath === req.path)
-      if (existingIndex >= 0) {
-        setActiveTileIndex(existingIndex)
-        onRequestHandled()
-        return
-      }
-      // Find first empty slot, or add new tile
-      const emptyIndex = tiles.findIndex(t => t.processPath === null)
-      if (emptyIndex >= 0) {
-        setTiles(prev => prev.map((t, i) => i === emptyIndex ? { processPath: req.path } : t))
-        setActiveTileIndex(emptyIndex)
+    let currentTiles = [...tiles]
+    let currentActiveTile = activeTileIndex
+    let currentLayout = layout
+
+    for (const req of openRequests) {
+      if (req.addNew) {
+        const existingIndex = currentTiles.findIndex(t => t.processPath === req.path)
+        if (existingIndex >= 0) {
+          currentActiveTile = existingIndex
+          continue
+        }
+        const emptyIndex = currentTiles.findIndex(t => t.processPath === null)
+        if (emptyIndex >= 0) {
+          currentTiles[emptyIndex] = { processPath: req.path, navigatedFromPath: null }
+          currentActiveTile = emptyIndex
+        } else {
+          currentTiles = [...currentTiles, { processPath: req.path, navigatedFromPath: null }]
+          currentActiveTile = currentTiles.length - 1
+          if (currentTiles.length === 2 && currentLayout === '1') currentLayout = '2v'
+          else if (currentTiles.length > 2 && currentLayout !== '4') currentLayout = '4'
+        }
       } else {
-        // Add a new tile and expand layout
-        const newTiles = [...tiles, { processPath: req.path }]
-        setTiles(newTiles)
-        setActiveTileIndex(newTiles.length - 1)
-        // Auto-expand layout
-        if (newTiles.length === 2 && layout === '1') setLayout('2v')
-        else if (newTiles.length > 2 && layout !== '4') setLayout('4')
+        currentTiles[currentActiveTile] = { processPath: req.path, navigatedFromPath: null }
       }
-    } else {
-      // Replace active tile
-      setTiles(prev => prev.map((t, i) =>
-        i === activeTileIndex ? { processPath: req.path } : t
-      ))
     }
+
+    setTiles(currentTiles)
+    setActiveTileIndex(currentActiveTile)
+    setLayout(currentLayout)
     onRequestHandled()
   }, [openRequests])
 
   const handleClose = useCallback((index: number) => {
     if (tiles.length <= 1) {
-      // Keep one tile but clear it
-      setTiles([{ processPath: null }])
+      setTiles([{ processPath: null, navigatedFromPath: null }])
       setActiveTileIndex(0)
       return
     }
@@ -94,6 +95,34 @@ export function TileManager({
     onNavigateToProcess(path)
   }, [onNavigateToProcess])
 
+  const handleTileNavigate = useCallback((tileIndex: number, path: string, addNew: boolean) => {
+    if (addNew) {
+      const existingIndex = tiles.findIndex(t => t.processPath === path)
+      if (existingIndex >= 0) {
+        setActiveTileIndex(existingIndex)
+        return
+      }
+      const sourcePath = tiles[tileIndex]?.processPath || null
+      const emptyIndex = tiles.findIndex(t => t.processPath === null)
+      if (emptyIndex >= 0) {
+        setTiles(prev => prev.map((t, i) => i === emptyIndex ? { processPath: path, navigatedFromPath: sourcePath } : t))
+        setActiveTileIndex(emptyIndex)
+      } else {
+        const newTiles = [...tiles, { processPath: path, navigatedFromPath: sourcePath }]
+        setTiles(newTiles)
+        setActiveTileIndex(newTiles.length - 1)
+        if (newTiles.length === 2 && layout === '1') setLayout('2v')
+        else if (newTiles.length > 2 && layout !== '4') setLayout('4')
+      }
+    } else {
+      const currentPath = tiles[tileIndex]?.processPath || null
+      setTiles(prev => prev.map((t, i) =>
+        i === tileIndex ? { processPath: path, navigatedFromPath: currentPath } : t
+      ))
+      setActiveTileIndex(tileIndex)
+    }
+  }, [tiles, layout])
+
   // Change layout preset
   const changeLayout = useCallback((preset: LayoutPreset) => {
     setLayout(preset)
@@ -105,7 +134,7 @@ export function TileManager({
       if (prev.length >= neededTiles) return prev.slice(0, neededTiles)
       const extended = [...prev]
       while (extended.length < neededTiles) {
-        extended.push({ processPath: null })
+        extended.push({ processPath: null, navigatedFromPath: null })
       }
       return extended
     })
@@ -170,6 +199,8 @@ export function TileManager({
     const summary = toProcessSummary(process, tile.processPath)
     const attention = checkNeedsAttention(summary, process)
 
+    const tileNavigate = (path: string, addNew: boolean) => handleTileNavigate(index, path, addNew)
+
     return (
       <div
         key={tile.processPath || index}
@@ -189,6 +220,8 @@ export function TileManager({
             processPath={tile.processPath}
             getProcess={getProcess}
             onNavigateToProcess={onNavigateToProcess}
+            onTileNavigate={tileNavigate}
+            navigatedFromPath={tile.navigatedFromPath}
           />
         </div>
       </div>
@@ -237,6 +270,21 @@ export function TileManager({
             {preset.icon}
           </button>
         ))}
+        {onPopOut && (
+          <>
+            <div className="flex-1" />
+            <button
+              onClick={onPopOut}
+              className="px-2 py-0.5 text-xs rounded transition-colors text-text-secondary hover:text-text-primary hover:bg-surface-elevated flex items-center gap-1"
+              title="Open in external window"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" />
+              </svg>
+              <span>Pop out</span>
+            </button>
+          </>
+        )}
       </div>
 
       {/* Tile area */}

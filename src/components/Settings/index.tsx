@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import type { AgentType } from '../../types'
 
@@ -33,7 +33,11 @@ export function Settings({
 }: SettingsProps) {
   const { settings, updateLazyPromptsSettings, updateAgentSettings, resetSettings } = useSettings()
   const [availableAgents, setAvailableAgents] = useState(AGENT_TYPES)
-  
+  const [channelInstalled, setChannelInstalled] = useState(false)
+  const [channelInstalledPath, setChannelInstalledPath] = useState<string | null>(null)
+  const [channelLoading, setChannelLoading] = useState(false)
+  const [channelError, setChannelError] = useState<string | null>(null)
+
   // Load available agents from electron
   useEffect(() => {
     if (window.electronAPI?.agentGetAvailable) {
@@ -46,6 +50,67 @@ export function Settings({
       })
     }
   }, [])
+
+  // Load channel installation status
+  const refreshChannelStatus = useCallback(async () => {
+    if (window.electronAPI?.channelIsInstalled) {
+      const installed = await window.electronAPI.channelIsInstalled()
+      setChannelInstalled(installed)
+      if (installed && window.electronAPI?.channelGetInstalledPath) {
+        const path = await window.electronAPI.channelGetInstalledPath()
+        setChannelInstalledPath(path)
+      } else {
+        setChannelInstalledPath(null)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshChannelStatus()
+  }, [refreshChannelStatus])
+
+  const handleChannelInstall = async () => {
+    setChannelLoading(true)
+    setChannelError(null)
+    try {
+      if (!window.electronAPI?.channelInstall) {
+        setChannelError('Channel API not available. Restart the app to load the updated bridge.')
+        return
+      }
+      const result = await window.electronAPI.channelInstall()
+      if (!result.success) {
+        setChannelError(result.error || 'Installation failed')
+      }
+      await refreshChannelStatus()
+    } catch (err) {
+      setChannelError(err instanceof Error ? err.message : 'Unexpected error during installation')
+    } finally {
+      setChannelLoading(false)
+    }
+  }
+
+  const handleChannelUninstall = async () => {
+    setChannelLoading(true)
+    setChannelError(null)
+    try {
+      if (!window.electronAPI?.channelUninstall) {
+        setChannelError('Channel API not available. Restart the app to load the updated bridge.')
+        return
+      }
+      const result = await window.electronAPI.channelUninstall()
+      if (!result.success) {
+        setChannelError(result.error || 'Uninstallation failed')
+      }
+      await refreshChannelStatus()
+      if (settings.lazyPrompts.deliveryMode === 'channel') {
+        updateLazyPromptsSettings({ deliveryMode: 'pty' })
+      }
+    } catch (err) {
+      setChannelError(err instanceof Error ? err.message : 'Unexpected error during uninstallation')
+    } finally {
+      setChannelLoading(false)
+    }
+  }
 
   return (
     <div className="h-full w-full flex flex-col bg-background">
@@ -71,6 +136,67 @@ export function Settings({
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl mx-auto space-y-8">
           
+          {/* Channel Server Section */}
+          <section className="bg-surface rounded-lg border border-border overflow-hidden">
+            <div className="p-4 border-b border-border bg-surface-elevated">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-accent/20">
+                  <svg className="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-text-primary">Channel Server</h2>
+                  <p className="text-xs text-text-muted">MCP channel for sending prompts to Claude Code sessions</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text-primary">Status</span>
+                    <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full ${
+                      channelInstalled
+                        ? 'bg-status-completed/20 text-status-completed'
+                        : 'bg-text-muted/20 text-text-muted'
+                    }`}>
+                      {channelInstalled ? 'Installed' : 'Not Installed'}
+                    </span>
+                  </div>
+                  {channelInstalledPath && (
+                    <p className="text-[10px] text-text-muted mt-1 font-mono truncate max-w-md" title={channelInstalledPath}>
+                      {channelInstalledPath}
+                    </p>
+                  )}
+                  <p className="text-xs text-text-muted mt-1">
+                    {channelInstalled
+                      ? 'All new Claude Code sessions will include the channel. Restart existing sessions for changes to take effect.'
+                      : 'Install to enable sending prompts to any Claude Code session (terminal, VS Code, etc.) via MCP channels.'}
+                  </p>
+                </div>
+                <button
+                  onClick={channelInstalled ? handleChannelUninstall : handleChannelInstall}
+                  disabled={channelLoading}
+                  className={`ml-4 px-4 py-2 text-sm font-medium rounded-lg transition-colors flex-shrink-0 ${
+                    channelInstalled
+                      ? 'text-status-failed hover:bg-status-failed/10 border border-status-failed/30'
+                      : 'text-white bg-accent hover:bg-accent/90'
+                  } ${channelLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {channelLoading ? 'Working...' : channelInstalled ? 'Uninstall' : 'Install'}
+                </button>
+              </div>
+              {channelError && (
+                <div className="mt-2 px-3 py-2 text-xs text-status-failed bg-status-failed/10 border border-status-failed/20 rounded-lg">
+                  {channelError}
+                </div>
+              )}
+            </div>
+          </section>
+
           {/* Lazy Prompts Section */}
           <section className="bg-surface rounded-lg border border-border overflow-hidden">
             <div className="p-4 border-b border-border bg-surface-elevated">
@@ -140,8 +266,51 @@ export function Settings({
                     description="Send the prompt directly to an active agent session"
                     icon={
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                           d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* Delivery Mode */}
+              <div className={`transition-opacity ${settings.lazyPrompts.enabled && settings.lazyPrompts.defaultAction === 'agent-apply' ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                <label className="text-sm font-medium text-text-primary block mb-2">
+                  Delivery Mode
+                </label>
+                <p className="text-xs text-text-muted mb-3">
+                  How prompts are delivered to the agent session
+                </p>
+                <div className="space-y-2">
+                  <RadioOption
+                    id="delivery-pty"
+                    name="delivery-mode"
+                    value="pty"
+                    checked={settings.lazyPrompts.deliveryMode === 'pty'}
+                    onChange={() => updateLazyPromptsSettings({ deliveryMode: 'pty' })}
+                    label="PTY (Terminal)"
+                    description="Type prompt into the terminal (classic mode, requires app-managed session)"
+                    icon={
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    }
+                  />
+                  <RadioOption
+                    id="delivery-channel"
+                    name="delivery-mode"
+                    value="channel"
+                    checked={settings.lazyPrompts.deliveryMode === 'channel'}
+                    onChange={() => updateLazyPromptsSettings({ deliveryMode: 'channel' })}
+                    label="Channel (MCP)"
+                    description="Send via MCP channel (works with any session: VS Code, terminal, etc.)"
+                    disabled={!channelInstalled}
+                    icon={
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" />
                       </svg>
                     }
                   />

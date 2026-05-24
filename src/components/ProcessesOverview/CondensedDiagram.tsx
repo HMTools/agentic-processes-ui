@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { ProcessInstance, ProcessMemory, ProcessLog, ProcessStep, ChildProcessRef, ParentProcessRef } from '../../types'
 import { ProcessDiagram } from '../DiagramView/ProcessDiagram'
 import { MemoryView } from '../DiagramView/MemoryView'
@@ -13,11 +13,13 @@ interface CondensedDiagramProps {
   processPath: string
   getProcess: (path: string) => ProcessInstance | undefined
   onNavigateToProcess: (path: string) => void
+  onTileNavigate?: (path: string, addNew: boolean) => void
+  navigatedFromPath?: string | null
 }
 
 const isElectron = () => typeof window !== 'undefined' && window.electronAPI !== undefined
 
-export function CondensedDiagram({ process, processPath, getProcess, onNavigateToProcess }: CondensedDiagramProps) {
+export function CondensedDiagram({ process, processPath, getProcess, onNavigateToProcess, onTileNavigate, navigatedFromPath }: CondensedDiagramProps) {
   const [activeTab, setActiveTab] = useState<InfoTab>('memory')
   const [memory, setMemory] = useState<ProcessMemory | null>(null)
   const [log, setLog] = useState<ProcessLog | null>(null)
@@ -80,15 +82,47 @@ export function CondensedDiagram({ process, processPath, getProcess, onNavigateT
     return `${basePath.replace(/\//g, '\\')}\\${normalized}\\process.json`
   }, [process.metadata.projectPaths, process.metadata.projectPath])
 
-  const handleSubProcessClick = useCallback((subProcess: ChildProcessRef) => {
-    const absolutePath = resolveProcessPath(subProcess.processPath)
-    onNavigateToProcess(absolutePath)
-  }, [resolveProcessPath, onNavigateToProcess])
+  const focusNodeId = useMemo(() => {
+    if (!navigatedFromPath) return null
+    const normalizeForCompare = (p: string) => p.replace(/\\/g, '/').toLowerCase()
+    const normalizedFrom = normalizeForCompare(navigatedFromPath)
 
-  const handleParentClick = useCallback((parent: ParentProcessRef) => {
+    if (process.subProcessState?.parentProcess) {
+      const parentAbsolutePath = resolveProcessPath(process.subProcessState.parentProcess.processPath)
+      if (normalizeForCompare(parentAbsolutePath) === normalizedFrom) {
+        return 'parent-process'
+      }
+    }
+
+    if (process.subProcessState?.childProcesses) {
+      for (const child of process.subProcessState.childProcesses) {
+        const childAbsolutePath = resolveProcessPath(child.processPath)
+        if (normalizeForCompare(childAbsolutePath) === normalizedFrom) {
+          return `subprocess-${child.id}`
+        }
+      }
+    }
+
+    return null
+  }, [navigatedFromPath, process.subProcessState, resolveProcessPath])
+
+  const handleSubProcessClick = useCallback((subProcess: ChildProcessRef, ctrlKey: boolean) => {
+    const absolutePath = resolveProcessPath(subProcess.processPath)
+    if (onTileNavigate) {
+      onTileNavigate(absolutePath, ctrlKey)
+    } else {
+      onNavigateToProcess(absolutePath)
+    }
+  }, [resolveProcessPath, onNavigateToProcess, onTileNavigate])
+
+  const handleParentClick = useCallback((parent: ParentProcessRef, ctrlKey: boolean) => {
     const absolutePath = resolveProcessPath(parent.processPath)
-    onNavigateToProcess(absolutePath)
-  }, [resolveProcessPath, onNavigateToProcess])
+    if (onTileNavigate) {
+      onTileNavigate(absolutePath, ctrlKey)
+    } else {
+      onNavigateToProcess(absolutePath)
+    }
+  }, [resolveProcessPath, onNavigateToProcess, onTileNavigate])
 
   const getSubProcess = useCallback((relativePath: string) => {
     const absolutePath = resolveProcessPath(relativePath)
@@ -152,6 +186,7 @@ export function CondensedDiagram({ process, processPath, getProcess, onNavigateT
             onSubProcessClick={handleSubProcessClick}
             onParentClick={handleParentClick}
             getSubProcess={getSubProcess}
+            focusNodeId={focusNodeId}
           />
         </div>
 

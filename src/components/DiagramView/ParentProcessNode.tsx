@@ -7,7 +7,7 @@ interface ParentProcessNodeData {
   name: string
   processPath: string
   returnToStep: StepId
-  onNavigate?: () => void
+  onNavigate?: (ctrlKey: boolean) => void
   isHighlighted?: boolean
 }
 
@@ -20,8 +20,8 @@ export const ParentProcessNode = memo(function ParentProcessNode({ data, selecte
   const { name, onNavigate, isHighlighted } = data
 
   const handleNavigateClick = (e: React.MouseEvent) => {
-    e.stopPropagation() // Prevent node selection
-    onNavigate?.()
+    e.stopPropagation()
+    onNavigate?.(e.ctrlKey || e.metaKey)
   }
 
   return (
@@ -75,7 +75,7 @@ export const ParentProcessNode = memo(function ParentProcessNode({ data, selecte
         <button
           onClick={handleNavigateClick}
           className="p-1 rounded hover:bg-amber-500/20 transition-colors group"
-          title="Open parent process (or double-click)"
+          title="Open parent process (Ctrl+Click for new tile)"
         >
           <svg 
             className="w-3.5 h-3.5 text-amber-400 group-hover:text-amber-300" 

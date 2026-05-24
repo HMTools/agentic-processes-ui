@@ -6,7 +6,8 @@ const SETTINGS_STORAGE_KEY = 'agentic-processes-settings'
 const DEFAULT_SETTINGS: AppSettings = {
   lazyPrompts: {
     enabled: true,
-    defaultAction: 'clipboard'
+    defaultAction: 'clipboard',
+    deliveryMode: 'pty'
   },
   agent: {
     defaultAgentType: 'claude-code',

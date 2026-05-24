@@ -23,8 +23,8 @@ import type { ProcessInstance, ProcessStep, ChildProcessRef, ParentProcessRef } 
 interface ProcessDiagramProps {
   process: ProcessInstance
   onStepClick?: (step: ProcessStep) => void
-  onSubProcessClick?: (subProcess: ChildProcessRef) => void
-  onParentClick?: (parent: ParentProcessRef) => void
+  onSubProcessClick?: (subProcess: ChildProcessRef, ctrlKey: boolean) => void
+  onParentClick?: (parent: ParentProcessRef, ctrlKey: boolean) => void
   focusNodeId?: string | null
   // For lazy prompts on subprocesses
   getSubProcess?: (relativePath: string) => { process: ProcessInstance; absolutePath: string } | undefined
@@ -39,8 +39,8 @@ const nodeTypes: NodeTypes = {
 // Generate nodes and edges from process steps and sub-processes
 function generateDiagram(
   process: ProcessInstance,
-  onSubProcessNavigate?: (subProcess: ChildProcessRef) => void,
-  onParentNavigate?: (parent: ParentProcessRef) => void,
+  onSubProcessNavigate?: (subProcess: ChildProcessRef, ctrlKey: boolean) => void,
+  onParentNavigate?: (parent: ParentProcessRef, ctrlKey: boolean) => void,
   highlightedNodeId?: string | null,
   getSubProcess?: (relativePath: string) => { process: ProcessInstance; absolutePath: string } | undefined
 ): { nodes: Node[]; edges: Edge[] } {
@@ -73,7 +73,7 @@ function generateDiagram(
         name: parent.name,
         processPath: parent.processPath,
         returnToStep: parent.returnToStep,
-        onNavigate: onParentNavigate ? () => onParentNavigate(parent) : undefined,
+        onNavigate: onParentNavigate ? (ctrlKey: boolean) => onParentNavigate(parent, ctrlKey) : undefined,
         isHighlighted: highlightedNodeId === 'parent-process'
       }
     })
@@ -181,7 +181,7 @@ function generateDiagram(
             name: subProcess.name,
             status: subProcess.status,
             spawnedAtStep: subProcess.spawnedAtStep,
-            onNavigate: onSubProcessNavigate ? () => onSubProcessNavigate(subProcess) : undefined,
+            onNavigate: onSubProcessNavigate ? (ctrlKey: boolean) => onSubProcessNavigate(subProcess, ctrlKey) : undefined,
             isHighlighted: highlightedNodeId === subProcessNodeId,
             // For lazy prompts
             subProcess: subProcessData?.process,
@@ -280,20 +280,19 @@ function ProcessDiagramInner({ process, onStepClick, onSubProcessClick, onParent
 
   // Handle double click - for subprocess and parent nodes
   const handleNodeDoubleClick = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      // Handle sub-process node double clicks
+    (event: React.MouseEvent, node: Node) => {
+      const ctrlKey = event.ctrlKey || event.metaKey
       if (node.id.startsWith('subprocess-') && onSubProcessClick) {
         const subProcessId = node.id.replace('subprocess-', '')
         const subProcess = process.subProcessState?.childProcesses?.find(c => c.id === subProcessId)
         if (subProcess) {
-          onSubProcessClick(subProcess)
+          onSubProcessClick(subProcess, ctrlKey)
         }
       }
-      // Handle parent process node double clicks
       else if (node.id === 'parent-process' && onParentClick) {
         const parent = process.subProcessState?.parentProcess
         if (parent) {
-          onParentClick(parent)
+          onParentClick(parent, ctrlKey)
         }
       }
     },

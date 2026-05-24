@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import type { ProcessSummary, ProcessInstance } from '../../types'
 import { ProcessTree, needsAttention } from './ProcessTree'
 import { TileManager } from './TileManager'
@@ -10,6 +10,9 @@ interface ProcessesOverviewProps {
   getProcess: (path: string) => ProcessInstance | undefined
   onNavigateToProcess: (path: string) => void
   onNewProcess?: () => void
+  onPopOut?: () => void
+  initialPaths?: string[] | null
+  onInitialPathsConsumed?: () => void
 }
 
 interface OpenRequest {
@@ -21,7 +24,10 @@ export function ProcessesOverview({
   processes,
   getProcess,
   onNavigateToProcess,
-  onNewProcess
+  onNewProcess,
+  onPopOut,
+  initialPaths,
+  onInitialPathsConsumed
 }: ProcessesOverviewProps) {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [openRequests, setOpenRequests] = useState<OpenRequest[]>([])
@@ -39,6 +45,17 @@ export function ProcessesOverview({
       return needsAttention(p, full)
     }).length
   }, [processes, getProcess])
+
+  useEffect(() => {
+    if (!initialPaths || initialPaths.length === 0) return
+    const requests: OpenRequest[] = initialPaths.map((path, i) => ({
+      path,
+      addNew: i > 0
+    }))
+    setOpenRequests(requests)
+    setSelectedPaths(new Set(initialPaths))
+    onInitialPathsConsumed?.()
+  }, [initialPaths])
 
   const handleSelectProcess = useCallback((path: string, ctrlKey: boolean) => {
     setSelectedPaths(new Set([path]))
@@ -123,6 +140,7 @@ export function ProcessesOverview({
         onNavigateToProcess={onNavigateToProcess}
         openRequests={openRequests}
         onRequestHandled={handleRequestHandled}
+        onPopOut={onPopOut}
       />
 
       {/* Context Menu */}

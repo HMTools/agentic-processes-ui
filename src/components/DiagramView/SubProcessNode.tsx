@@ -9,7 +9,7 @@ interface SubProcessNodeData {
   name: string
   status: ProcessStatus
   spawnedAtStep: StepId
-  onNavigate?: () => void
+  onNavigate?: (ctrlKey: boolean) => void
   isHighlighted?: boolean
   // For lazy prompts
   subProcess?: ProcessInstance
@@ -29,8 +29,8 @@ export const SubProcessNode = memo(function SubProcessNode({ data, selected }: S
   const [isModalOpen, setIsModalOpen] = useState(false)
 
   const handleNavigateClick = (e: React.MouseEvent) => {
-    e.stopPropagation() // Prevent node selection
-    onNavigate?.()
+    e.stopPropagation()
+    onNavigate?.(e.ctrlKey || e.metaKey)
   }
 
   const handleLazyPromptClick = useCallback((e: React.MouseEvent) => {
@@ -173,7 +173,7 @@ export const SubProcessNode = memo(function SubProcessNode({ data, selected }: S
             <button
               onClick={handleNavigateClick}
               className="p-1 rounded hover:bg-violet-500/20 transition-colors group"
-              title="Open sub-process (or double-click)"
+              title="Open sub-process (Ctrl+Click for new tile)"
             >
               <svg 
                 className="w-3.5 h-3.5 text-violet-400 group-hover:text-violet-300" 

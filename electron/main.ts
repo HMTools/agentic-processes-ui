@@ -16,6 +16,20 @@ import {
   type ActiveProcessInfo,
   type ExternalSession
 } from './agentSessionManager'
+import {
+  getChannelManager,
+  startChannelManager,
+  stopChannelManager,
+  type ChannelAvailableEvent,
+  type ChannelRemovedEvent,
+  type ChannelReply,
+} from './channelManager'
+import {
+  isChannelInstalled,
+  installChannelGlobally,
+  uninstallChannelGlobally,
+  getInstalledChannelPath,
+} from './channelInstaller'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -25,6 +39,17 @@ let currentProjectPath: string | null = null
 let fileContentWatchers: Map<string, FSWatcher> = new Map()
 let agentManagerInitialized = false
 let terminalWindows: Map<string, BrowserWindow> = new Map()
+let overviewWindows: Map<string, BrowserWindow> = new Map()
+
+// Cached process map for serving initial snapshots to overview windows
+let cachedProcesses: Map<string, unknown> = new Map()
+
+function broadcastToRenderers(channel: string, data: unknown) {
+  mainWindow?.webContents.send(channel, data)
+  for (const [, win] of overviewWindows) {
+    if (!win.isDestroyed()) win.webContents.send(channel, data)
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -133,39 +158,43 @@ ipcMain.handle('set-project-path', (_event, path: string) => {
 ipcMain.handle('start-watching', async (_event, projectPath: string) => {
   if (mainWindow) {
     const result = await createFileWatcher(
-      projectPath, 
+      projectPath,
       (event, fileType, data) => {
-        // Send to appropriate channel based on file type
         switch (fileType) {
           case 'process':
-            mainWindow?.webContents.send('process-update', { 
-              event, 
-              data: { path: data.processPath, process: data.content } 
+            if (event === 'added' || event === 'changed') {
+              cachedProcesses.set(data.processPath, data.content)
+            } else if (event === 'removed') {
+              cachedProcesses.delete(data.processPath)
+            }
+            broadcastToRenderers('process-update', {
+              event,
+              data: { path: data.processPath, process: data.content }
             })
             break
           case 'memory':
-            mainWindow?.webContents.send('memory-update', { 
-              event, 
+            broadcastToRenderers('memory-update', {
+              event,
               processPath: data.processPath,
-              memory: data.content 
+              memory: data.content
             })
             break
           case 'log':
-            mainWindow?.webContents.send('log-update', {
+            broadcastToRenderers('log-update', {
               event,
               processPath: data.processPath,
               log: data.content
             })
             break
           case 'pending-interaction':
-            mainWindow?.webContents.send('pending-interaction-update', {
+            broadcastToRenderers('pending-interaction-update', {
               event,
               processPath: data.processPath,
               pendingInteraction: data.content
             })
             break
           case 'qa-session':
-            mainWindow?.webContents.send('qa-session-update', {
+            broadcastToRenderers('qa-session-update', {
               event,
               processPath: data.processPath,
               qaSession: data.content
@@ -174,12 +203,10 @@ ipcMain.handle('start-watching', async (_event, projectPath: string) => {
         }
       },
       (error) => {
-        // Send error to renderer
-        mainWindow?.webContents.send('watcher-error', { error })
+        broadcastToRenderers('watcher-error', { error })
       }
     )
-    
-    // Return error info if watcher failed to start
+
     if (!result.success) {
       return { success: false, error: result.error }
     }
@@ -305,7 +332,7 @@ ipcMain.handle('watch-file', (_event, filePath: string) => {
     console.log(`File content changed: ${path}`)
     try {
       const content = await readFile(path, 'utf-8')
-      mainWindow?.webContents.send('file-content-update', {
+      broadcastToRenderers('file-content-update', {
         filePath: path,
         content
       })
@@ -313,10 +340,10 @@ ipcMain.handle('watch-file', (_event, filePath: string) => {
       console.error(`Error reading changed file: ${path}`, error)
     }
   })
-  
+
   fileWatcher.on('unlink', (path) => {
     console.log(`Watched file removed: ${path}`)
-    mainWindow?.webContents.send('file-content-update', {
+    broadcastToRenderers('file-content-update', {
       filePath: path,
       content: null,
       removed: true
@@ -645,7 +672,7 @@ ipcMain.handle('load-step-templates', async () => {
       const categoryPath = join(stepsPath, category)
       const categoryStat = await stat(categoryPath)
 
-      // Skip non-directories and special folders like _components
+      // Skip non-directories and special folders
       if (!categoryStat.isDirectory() || category.startsWith('.') || category.startsWith('_')) {
         continue
       }
@@ -968,12 +995,167 @@ ipcMain.handle('agent:migrate-external', async (_event, externalSession: Externa
   }
 })
 
+// ============================================================================
+// Channel IPC Handlers
+// ============================================================================
+
+let channelManagerInitialized = false
+
+function initializeChannelManager() {
+  if (channelManagerInitialized) return
+  channelManagerInitialized = true
+
+  startChannelManager()
+  const cm = getChannelManager()
+
+  cm.on('channel-available', (event: ChannelAvailableEvent) => {
+    mainWindow?.webContents.send('channel:available', event)
+  })
+
+  cm.on('channel-removed', (event: ChannelRemovedEvent) => {
+    mainWindow?.webContents.send('channel:removed', event)
+  })
+
+  cm.on('channel-reply', (event: ChannelReply & { parentPid: number }) => {
+    mainWindow?.webContents.send('channel:reply', event)
+  })
+}
+
+ipcMain.handle('channel:is-installed', () => {
+  return isChannelInstalled()
+})
+
+ipcMain.handle('channel:get-installed-path', () => {
+  return getInstalledChannelPath()
+})
+
+ipcMain.handle('channel:install', () => {
+  return installChannelGlobally()
+})
+
+ipcMain.handle('channel:uninstall', () => {
+  return uninstallChannelGlobally()
+})
+
+ipcMain.handle('channel:list', () => {
+  initializeChannelManager()
+  return getChannelManager().listChannels()
+})
+
+ipcMain.handle('channel:get-for-pid', (_event, pid: number) => {
+  initializeChannelManager()
+  return getChannelManager().getChannelForPid(pid)
+})
+
+ipcMain.handle('channel:send-prompt', async (_event, port: number, prompt: string, meta?: Record<string, string>) => {
+  initializeChannelManager()
+  return getChannelManager().sendPrompt(port, prompt, meta)
+})
+
+ipcMain.handle('channel:check-health', async (_event, port: number) => {
+  initializeChannelManager()
+  return getChannelManager().checkHealth(port)
+})
+
+// ============================================================================
+// Overview Window IPC Handlers
+// ============================================================================
+
+function createOverviewWindow(projectPaths: string[]) {
+  const existing = overviewWindows.get('default')
+  if (existing && !existing.isDestroyed()) {
+    existing.focus()
+    return
+  }
+
+  const overviewWin = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    icon: join(__dirname, '../images/icon.png'),
+    backgroundColor: '#0d1117',
+    title: 'Processes Overview',
+    webPreferences: {
+      preload: join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  })
+
+  overviewWin.setMenuBarVisibility(false)
+
+  const queryParams = `?projectPaths=${encodeURIComponent(JSON.stringify(projectPaths))}`
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    overviewWin.loadURL(`${process.env.VITE_DEV_SERVER_URL}overview-window.html${queryParams}`)
+  } else {
+    overviewWin.loadFile(join(__dirname, '../dist/overview-window.html'), {
+      search: queryParams
+    })
+  }
+
+  overviewWindows.set('default', overviewWin)
+
+  overviewWin.on('closed', () => {
+    overviewWindows.delete('default')
+  })
+}
+
+ipcMain.handle('overview:open-window', (_event, projectPaths: string[]) => {
+  try {
+    createOverviewWindow(projectPaths)
+    return { success: true }
+  } catch (error) {
+    console.error('Error opening overview window:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
+})
+
+ipcMain.handle('overview:get-window-params', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win) return null
+
+  try {
+    const url = win.webContents.getURL()
+    const urlObj = new URL(url)
+    const projectPathsParam = urlObj.searchParams.get('projectPaths')
+    return {
+      projectPaths: projectPathsParam ? JSON.parse(projectPathsParam) : []
+    }
+  } catch {
+    return null
+  }
+})
+
+ipcMain.handle('overview:get-current-processes', () => {
+  const result: Record<string, unknown> = {}
+  for (const [path, process] of cachedProcesses) {
+    result[path] = process
+  }
+  return result
+})
+
+ipcMain.handle('overview:navigate-to-process', (_event, processPath: string) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('navigate-to-process-request', processPath)
+    mainWindow.focus()
+  }
+  return { success: true }
+})
+
 // App lifecycle
 app.whenReady().then(() => {
   // Remove default menu bar
   Menu.setApplicationMenu(null)
-  
+
   createWindow()
+
+  // Start channel discovery on app launch
+  initializeChannelManager()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -997,10 +1179,21 @@ app.on('window-all-closed', () => {
     }
   }
   terminalWindows.clear()
+
+  // Close all overview windows
+  for (const [, win] of overviewWindows) {
+    if (!win.isDestroyed()) {
+      win.close()
+    }
+  }
+  overviewWindows.clear()
   
   // Clean up agent sessions
   cleanupAgentManager()
-  
+
+  // Clean up channel manager
+  stopChannelManager()
+
   if (process.platform !== 'darwin') {
     app.quit()
   }

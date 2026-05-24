@@ -1,15 +1,16 @@
 import { ipcMain, dialog, clipboard, BrowserWindow, app, Menu } from "electron";
-import { join, dirname, extname } from "path";
+import { join, dirname, resolve, extname } from "path";
 import { homedir, platform } from "os";
 import { fileURLToPath } from "url";
 import { mkdir, readFile, readdir, stat, rm } from "fs/promises";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "fs";
 import { watch } from "chokidar";
 import { spawn } from "node-pty";
 import { EventEmitter } from "events";
 import { randomUUID } from "crypto";
 import { exec, execSync } from "child_process";
 import { promisify } from "util";
+import { request } from "http";
 const AGENTIC_DIR = join(homedir(), ".claude", "agentic-processes");
 const watchers = /* @__PURE__ */ new Map();
 async function createFileWatcher(_projectPath, callback, onError) {
@@ -403,7 +404,7 @@ class AgentSessionManager extends EventEmitter {
           });
         }
       });
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve2) => setTimeout(resolve2, 500));
       let agentCommand = config.args?.length ? `${config.command} ${config.args.join(" ")}` : config.command;
       if (options?.permissionMode === "allow-all" && agentType === "claude-code") {
         agentCommand = `${agentCommand} --dangerously-skip-permissions`;
@@ -414,7 +415,7 @@ class AgentSessionManager extends EventEmitter {
       pty.write(`${agentCommand}\r`);
       const readyPattern = /[?>]\s*(for shortcuts|$)/;
       await this.waitForOutput(sessionId, readyPattern, 3e4);
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve2) => setTimeout(resolve2, 500));
       session.status = "running";
       this.emit("status", {
         sessionId,
@@ -455,7 +456,7 @@ class AgentSessionManager extends EventEmitter {
     const commandEnd = attachCommand.slice(-20);
     const echoPattern = new RegExp(escapeRegex(commandEnd));
     await this.waitForOutput(sessionId, echoPattern, 5e3);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve2) => setTimeout(resolve2, 100));
     session.pty.write("\r");
     session.attachedProcessPath = processPath;
     this.emit("status", {
@@ -482,7 +483,7 @@ class AgentSessionManager extends EventEmitter {
     const promptEnd = prompt.slice(-20);
     const echoPattern = new RegExp(escapeRegex(promptEnd));
     await this.waitForOutput(sessionId, echoPattern, 5e3);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve2) => setTimeout(resolve2, 100));
     session.pty.write("\r");
   }
   /**
@@ -616,7 +617,7 @@ class AgentSessionManager extends EventEmitter {
         }
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve2) => setTimeout(resolve2, 1500));
     return this.createSession(
       "claude-code",
       workingDirectory,
@@ -638,14 +639,14 @@ class AgentSessionManager extends EventEmitter {
    * Returns true if pattern found, false if timeout
    */
   waitForOutput(sessionId, pattern, timeoutMs = 5e3) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const session = this.sessions.get(sessionId);
       if (!session) {
-        resolve(false);
+        resolve2(false);
         return;
       }
       if (pattern.test(session.outputBuffer)) {
-        resolve(true);
+        resolve2(true);
         return;
       }
       const checkOutput = (event) => {
@@ -653,12 +654,12 @@ class AgentSessionManager extends EventEmitter {
         const currentSession = this.sessions.get(sessionId);
         if (currentSession && pattern.test(currentSession.outputBuffer)) {
           cleanup();
-          resolve(true);
+          resolve2(true);
         }
       };
       const timeoutId = setTimeout(() => {
         cleanup();
-        resolve(false);
+        resolve2(false);
       }, timeoutMs);
       const cleanup = () => {
         clearTimeout(timeoutId);
@@ -697,6 +698,303 @@ function cleanupAgentManager() {
     agentManager = null;
   }
 }
+const DISCOVERY_DIR = join(homedir(), ".claude", "agentic-processes", "channels");
+class ChannelManager extends EventEmitter {
+  channels = /* @__PURE__ */ new Map();
+  // parentPid → endpoint
+  watcher = null;
+  sseAbortControllers = /* @__PURE__ */ new Map();
+  // parentPid → SSE abort
+  constructor() {
+    super();
+  }
+  start() {
+    mkdirSync(DISCOVERY_DIR, { recursive: true });
+    this.loadExisting();
+    this.startWatcher();
+  }
+  stop() {
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
+    for (const [, controller] of this.sseAbortControllers) {
+      controller.abort();
+    }
+    this.sseAbortControllers.clear();
+    this.channels.clear();
+  }
+  // -- Public API -----------------------------------------------------------
+  getChannelForPid(claudeCodePid) {
+    return this.channels.get(claudeCodePid) ?? null;
+  }
+  listChannels() {
+    return Array.from(this.channels.values());
+  }
+  async checkHealth(port) {
+    return new Promise((resolve2) => {
+      const req = request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/health",
+          method: "GET",
+          timeout: 3e3
+        },
+        (res) => {
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            try {
+              resolve2(JSON.parse(Buffer.concat(chunks).toString("utf-8")));
+            } catch {
+              resolve2(null);
+            }
+          });
+        }
+      );
+      req.on("error", () => resolve2(null));
+      req.on("timeout", () => {
+        req.destroy();
+        resolve2(null);
+      });
+      req.end();
+    });
+  }
+  async sendPrompt(port, prompt, meta) {
+    return new Promise((resolve2) => {
+      const body = JSON.stringify({ prompt, meta });
+      const req = request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/prompt",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          timeout: 5e3
+        },
+        (res) => {
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            try {
+              const result = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+              resolve2(result);
+            } catch {
+              resolve2({ ok: false, error: "Invalid response from channel server" });
+            }
+          });
+        }
+      );
+      req.on("error", (err) => resolve2({ ok: false, error: err.message }));
+      req.on("timeout", () => {
+        req.destroy();
+        resolve2({ ok: false, error: "Request timed out" });
+      });
+      req.write(body);
+      req.end();
+    });
+  }
+  subscribeReplies(parentPid) {
+    const endpoint = this.channels.get(parentPid);
+    if (!endpoint) return;
+    if (this.sseAbortControllers.has(parentPid)) return;
+    const controller = new AbortController();
+    this.sseAbortControllers.set(parentPid, controller);
+    const connectSSE = () => {
+      if (controller.signal.aborted) return;
+      const req = request(
+        {
+          hostname: "127.0.0.1",
+          port: endpoint.port,
+          path: "/events",
+          method: "GET",
+          headers: { Accept: "text/event-stream" }
+        },
+        (res) => {
+          let buffer = "";
+          res.on("data", (chunk) => {
+            buffer += chunk.toString();
+            const events = buffer.split("\n\n");
+            buffer = events.pop() ?? "";
+            for (const raw of events) {
+              const dataLine = raw.split("\n").find((l) => l.startsWith("data: "));
+              if (!dataLine) continue;
+              try {
+                const reply = JSON.parse(dataLine.slice(6));
+                this.emit("channel-reply", { parentPid, ...reply });
+              } catch {
+              }
+            }
+          });
+          res.on("end", () => {
+            if (!controller.signal.aborted) {
+              setTimeout(connectSSE, 2e3);
+            }
+          });
+        }
+      );
+      req.on("error", () => {
+        if (!controller.signal.aborted) {
+          setTimeout(connectSSE, 5e3);
+        }
+      });
+      controller.signal.addEventListener("abort", () => req.destroy());
+      req.end();
+    };
+    connectSSE();
+  }
+  unsubscribeReplies(parentPid) {
+    const controller = this.sseAbortControllers.get(parentPid);
+    if (controller) {
+      controller.abort();
+      this.sseAbortControllers.delete(parentPid);
+    }
+  }
+  // -- Discovery watcher ----------------------------------------------------
+  loadExisting() {
+    if (!existsSync(DISCOVERY_DIR)) return;
+    for (const file of readdirSync(DISCOVERY_DIR)) {
+      if (!file.endsWith(".json")) continue;
+      this.handleDiscoveryFile(join(DISCOVERY_DIR, file));
+    }
+  }
+  startWatcher() {
+    this.watcher = watch(DISCOVERY_DIR, {
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 200 }
+    });
+    this.watcher.on("add", (filePath) => this.handleDiscoveryFile(filePath));
+    this.watcher.on("change", (filePath) => this.handleDiscoveryFile(filePath));
+    this.watcher.on("unlink", (filePath) => this.handleDiscoveryRemoval(filePath));
+  }
+  handleDiscoveryFile(filePath) {
+    try {
+      const content = readFileSync(filePath, "utf-8");
+      const data = JSON.parse(content);
+      if (!data.port || !data.parentPid) return;
+      if (!this.isProcessAlive(data.parentPid)) {
+        try {
+          unlinkSync(filePath);
+        } catch {
+        }
+        return;
+      }
+      const isNew = !this.channels.has(data.parentPid);
+      this.channels.set(data.parentPid, data);
+      if (isNew) {
+        this.emit("channel-available", {
+          parentPid: data.parentPid,
+          port: data.port
+        });
+        this.subscribeReplies(data.parentPid);
+      }
+    } catch {
+    }
+  }
+  handleDiscoveryRemoval(filePath) {
+    const fileName = filePath.split(/[/\\]/).pop()?.replace(".json", "");
+    if (!fileName) return;
+    const parentPid = parseInt(fileName, 10);
+    if (isNaN(parentPid)) return;
+    if (this.channels.has(parentPid)) {
+      this.channels.delete(parentPid);
+      this.unsubscribeReplies(parentPid);
+      this.emit("channel-removed", { parentPid });
+    }
+  }
+  isProcessAlive(pid) {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+let channelManager = null;
+function getChannelManager() {
+  if (!channelManager) {
+    channelManager = new ChannelManager();
+  }
+  return channelManager;
+}
+function startChannelManager() {
+  getChannelManager().start();
+}
+function stopChannelManager() {
+  if (channelManager) {
+    channelManager.stop();
+    channelManager = null;
+  }
+}
+const __installerFilename = fileURLToPath(import.meta.url);
+const __installerDirname = dirname(__installerFilename);
+const CLAUDE_CONFIG_PATH = join(homedir(), ".claude.json");
+const SERVER_NAME = "agentic-processes-channel";
+function getChannelServerPath() {
+  const devPath = resolve(__installerDirname, "..", "channel-server", "dist", "index.js");
+  if (existsSync(devPath)) return devPath;
+  const prodPath = resolve(process.resourcesPath ?? __installerDirname, "channel-server", "dist", "index.js");
+  if (existsSync(prodPath)) return prodPath;
+  return devPath;
+}
+function readClaudeConfig() {
+  if (!existsSync(CLAUDE_CONFIG_PATH)) return {};
+  try {
+    return JSON.parse(readFileSync(CLAUDE_CONFIG_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+function writeClaudeConfig(config) {
+  writeFileSync(CLAUDE_CONFIG_PATH, JSON.stringify(config, null, 2), "utf-8");
+}
+function isChannelInstalled() {
+  const config = readClaudeConfig();
+  const mcpServers = config.mcpServers ?? {};
+  return SERVER_NAME in mcpServers;
+}
+function getInstalledChannelPath() {
+  const config = readClaudeConfig();
+  const mcpServers = config.mcpServers ?? {};
+  const entry = mcpServers[SERVER_NAME];
+  return entry?.args?.[0] ?? null;
+}
+function installChannelGlobally() {
+  try {
+    const serverPath = getChannelServerPath();
+    if (!existsSync(serverPath)) {
+      return { success: false, error: `Channel server not found at: ${serverPath}. Build the channel server first.` };
+    }
+    const config = readClaudeConfig();
+    const mcpServers = config.mcpServers ?? {};
+    mcpServers[SERVER_NAME] = {
+      command: "node",
+      args: [serverPath]
+    };
+    config.mcpServers = mcpServers;
+    writeClaudeConfig(config);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
+function uninstallChannelGlobally() {
+  try {
+    const config = readClaudeConfig();
+    const mcpServers = config.mcpServers ?? {};
+    if (!(SERVER_NAME in mcpServers)) {
+      return { success: true };
+    }
+    delete mcpServers[SERVER_NAME];
+    config.mcpServers = mcpServers;
+    writeClaudeConfig(config);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+  }
+}
 const __filename$1 = fileURLToPath(import.meta.url);
 const __dirname$1 = dirname(__filename$1);
 let mainWindow = null;
@@ -704,6 +1002,14 @@ let currentProjectPath = null;
 let fileContentWatchers = /* @__PURE__ */ new Map();
 let agentManagerInitialized = false;
 let terminalWindows = /* @__PURE__ */ new Map();
+let overviewWindows = /* @__PURE__ */ new Map();
+let cachedProcesses = /* @__PURE__ */ new Map();
+function broadcastToRenderers(channel, data) {
+  mainWindow?.webContents.send(channel, data);
+  for (const [, win] of overviewWindows) {
+    if (!win.isDestroyed()) win.webContents.send(channel, data);
+  }
+}
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -793,34 +1099,39 @@ ipcMain.handle("start-watching", async (_event, projectPath) => {
       (event, fileType, data) => {
         switch (fileType) {
           case "process":
-            mainWindow?.webContents.send("process-update", {
+            if (event === "added" || event === "changed") {
+              cachedProcesses.set(data.processPath, data.content);
+            } else if (event === "removed") {
+              cachedProcesses.delete(data.processPath);
+            }
+            broadcastToRenderers("process-update", {
               event,
               data: { path: data.processPath, process: data.content }
             });
             break;
           case "memory":
-            mainWindow?.webContents.send("memory-update", {
+            broadcastToRenderers("memory-update", {
               event,
               processPath: data.processPath,
               memory: data.content
             });
             break;
           case "log":
-            mainWindow?.webContents.send("log-update", {
+            broadcastToRenderers("log-update", {
               event,
               processPath: data.processPath,
               log: data.content
             });
             break;
           case "pending-interaction":
-            mainWindow?.webContents.send("pending-interaction-update", {
+            broadcastToRenderers("pending-interaction-update", {
               event,
               processPath: data.processPath,
               pendingInteraction: data.content
             });
             break;
           case "qa-session":
-            mainWindow?.webContents.send("qa-session-update", {
+            broadcastToRenderers("qa-session-update", {
               event,
               processPath: data.processPath,
               qaSession: data.content
@@ -829,7 +1140,7 @@ ipcMain.handle("start-watching", async (_event, projectPath) => {
         }
       },
       (error) => {
-        mainWindow?.webContents.send("watcher-error", { error });
+        broadcastToRenderers("watcher-error", { error });
       }
     );
     if (!result.success) {
@@ -932,7 +1243,7 @@ ipcMain.handle("watch-file", (_event, filePath) => {
     console.log(`File content changed: ${path}`);
     try {
       const content = await readFile(path, "utf-8");
-      mainWindow?.webContents.send("file-content-update", {
+      broadcastToRenderers("file-content-update", {
         filePath: path,
         content
       });
@@ -942,7 +1253,7 @@ ipcMain.handle("watch-file", (_event, filePath) => {
   });
   fileWatcher.on("unlink", (path) => {
     console.log(`Watched file removed: ${path}`);
-    mainWindow?.webContents.send("file-content-update", {
+    broadcastToRenderers("file-content-update", {
       filePath: path,
       content: null,
       removed: true
@@ -1030,13 +1341,13 @@ ipcMain.handle("answer-question", async (_event, processPath, questionId, answer
     pythonProcess.stderr.on("data", (data) => {
       stderr += data.toString();
     });
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       pythonProcess.on("close", (code) => {
         if (code === 0) {
-          resolve({ success: true });
+          resolve2({ success: true });
         } else {
           console.error(`Python script failed with code ${code}:`, stderr);
-          resolve({ success: false, error: "Failed to update answer" });
+          resolve2({ success: false, error: "Failed to update answer" });
         }
       });
     });
@@ -1075,13 +1386,13 @@ ipcMain.handle("complete-question", async (_event, processPath, questionId) => {
     pythonProcess.stderr.on("data", (data) => {
       stderr += data.toString();
     });
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       pythonProcess.on("close", (code) => {
         if (code === 0) {
-          resolve({ success: true });
+          resolve2({ success: true });
         } else {
           console.error(`Python script failed with code ${code}:`, stderr);
-          resolve({ success: false, error: "Failed to complete question" });
+          resolve2({ success: false, error: "Failed to complete question" });
         }
       });
     });
@@ -1448,9 +1759,128 @@ ipcMain.handle("agent:migrate-external", async (_event, externalSession, working
     };
   }
 });
+let channelManagerInitialized = false;
+function initializeChannelManager() {
+  if (channelManagerInitialized) return;
+  channelManagerInitialized = true;
+  startChannelManager();
+  const cm = getChannelManager();
+  cm.on("channel-available", (event) => {
+    mainWindow?.webContents.send("channel:available", event);
+  });
+  cm.on("channel-removed", (event) => {
+    mainWindow?.webContents.send("channel:removed", event);
+  });
+  cm.on("channel-reply", (event) => {
+    mainWindow?.webContents.send("channel:reply", event);
+  });
+}
+ipcMain.handle("channel:is-installed", () => {
+  return isChannelInstalled();
+});
+ipcMain.handle("channel:get-installed-path", () => {
+  return getInstalledChannelPath();
+});
+ipcMain.handle("channel:install", () => {
+  return installChannelGlobally();
+});
+ipcMain.handle("channel:uninstall", () => {
+  return uninstallChannelGlobally();
+});
+ipcMain.handle("channel:list", () => {
+  initializeChannelManager();
+  return getChannelManager().listChannels();
+});
+ipcMain.handle("channel:get-for-pid", (_event, pid) => {
+  initializeChannelManager();
+  return getChannelManager().getChannelForPid(pid);
+});
+ipcMain.handle("channel:send-prompt", async (_event, port, prompt, meta) => {
+  initializeChannelManager();
+  return getChannelManager().sendPrompt(port, prompt, meta);
+});
+ipcMain.handle("channel:check-health", async (_event, port) => {
+  initializeChannelManager();
+  return getChannelManager().checkHealth(port);
+});
+function createOverviewWindow(projectPaths) {
+  const existing = overviewWindows.get("default");
+  if (existing && !existing.isDestroyed()) {
+    existing.focus();
+    return;
+  }
+  const overviewWin = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+    icon: join(__dirname$1, "../images/icon.png"),
+    backgroundColor: "#0d1117",
+    title: "Processes Overview",
+    webPreferences: {
+      preload: join(__dirname$1, "preload.js"),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  });
+  overviewWin.setMenuBarVisibility(false);
+  const queryParams = `?projectPaths=${encodeURIComponent(JSON.stringify(projectPaths))}`;
+  if (process.env.VITE_DEV_SERVER_URL) {
+    overviewWin.loadURL(`${process.env.VITE_DEV_SERVER_URL}overview-window.html${queryParams}`);
+  } else {
+    overviewWin.loadFile(join(__dirname$1, "../dist/overview-window.html"), {
+      search: queryParams
+    });
+  }
+  overviewWindows.set("default", overviewWin);
+  overviewWin.on("closed", () => {
+    overviewWindows.delete("default");
+  });
+}
+ipcMain.handle("overview:open-window", (_event, projectPaths) => {
+  try {
+    createOverviewWindow(projectPaths);
+    return { success: true };
+  } catch (error) {
+    console.error("Error opening overview window:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+});
+ipcMain.handle("overview:get-window-params", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return null;
+  try {
+    const url = win.webContents.getURL();
+    const urlObj = new URL(url);
+    const projectPathsParam = urlObj.searchParams.get("projectPaths");
+    return {
+      projectPaths: projectPathsParam ? JSON.parse(projectPathsParam) : []
+    };
+  } catch {
+    return null;
+  }
+});
+ipcMain.handle("overview:get-current-processes", () => {
+  const result = {};
+  for (const [path, process2] of cachedProcesses) {
+    result[path] = process2;
+  }
+  return result;
+});
+ipcMain.handle("overview:navigate-to-process", (_event, processPath) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("navigate-to-process-request", processPath);
+    mainWindow.focus();
+  }
+  return { success: true };
+});
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   createWindow();
+  initializeChannelManager();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -1469,7 +1899,14 @@ app.on("window-all-closed", () => {
     }
   }
   terminalWindows.clear();
+  for (const [, win] of overviewWindows) {
+    if (!win.isDestroyed()) {
+      win.close();
+    }
+  }
+  overviewWindows.clear();
   cleanupAgentManager();
+  stopChannelManager();
   if (process.platform !== "darwin") {
     app.quit();
   }

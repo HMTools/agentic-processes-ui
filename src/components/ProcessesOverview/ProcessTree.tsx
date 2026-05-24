@@ -1,13 +1,9 @@
 import { useState, useMemo } from 'react'
 import type { ProcessSummary, ProcessInstance } from '../../types'
 import { ProcessTreeItem } from './ProcessTreeItem'
+import { buildProcessTree, type ProcessTreeNode } from '../../utils/processTree'
 
 type TreeFilter = 'all' | 'running' | 'attention'
-
-interface ProcessTreeNode {
-  process: ProcessSummary
-  children: ProcessTreeNode[]
-}
 
 interface ProcessTreeProps {
   processes: ProcessSummary[]
@@ -41,66 +37,13 @@ export function ProcessTree({
   attentionCount
 }: ProcessTreeProps) {
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<TreeFilter>('all')
+  const [filter, setFilter] = useState<TreeFilter>('running')
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
 
-  // Build tree from flat process list using subProcessState
-  const { tree, childPathSet } = useMemo(() => {
-    const childPaths = new Set<string>()
-
-    // First pass: identify all child process paths
-    for (const proc of processes) {
-      const full = getProcess(proc.path)
-      if (full?.subProcessState?.childProcesses) {
-        for (const child of full.subProcessState.childProcesses) {
-          // Find matching process by name or id
-          const childProc = processes.find(p => {
-            const childFull = getProcess(p.path)
-            return childFull?.id === child.id
-          })
-          if (childProc) {
-            childPaths.add(childProc.path)
-          }
-        }
-      }
-    }
-
-    // Build tree nodes
-    const nodeMap = new Map<string, ProcessTreeNode>()
-    for (const proc of processes) {
-      nodeMap.set(proc.path, { process: proc, children: [] })
-    }
-
-    // Attach children to parents
-    for (const proc of processes) {
-      const full = getProcess(proc.path)
-      if (full?.subProcessState?.childProcesses) {
-        const parentNode = nodeMap.get(proc.path)
-        if (parentNode) {
-          for (const child of full.subProcessState.childProcesses) {
-            const childProc = processes.find(p => {
-              const childFull = getProcess(p.path)
-              return childFull?.id === child.id
-            })
-            if (childProc) {
-              const childNode = nodeMap.get(childProc.path)
-              if (childNode) {
-                parentNode.children.push(childNode)
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Root nodes = processes that are not children
-    const roots = processes
-      .filter(p => !childPaths.has(p.path))
-      .map(p => nodeMap.get(p.path)!)
-      .filter(Boolean)
-
-    return { tree: roots, childPathSet: childPaths }
-  }, [processes, getProcess])
+  const { tree, childPathSet } = useMemo(
+    () => buildProcessTree(processes, getProcess),
+    [processes, getProcess]
+  )
 
   // Filter tree
   const filteredTree = useMemo(() => {

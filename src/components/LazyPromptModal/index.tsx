@@ -171,11 +171,13 @@ export function LazyPromptModal({ process, processPath, projectPath, onClose }: 
           settings.lazyPrompts.defaultAction,
           process,
           processPath,
-          item.option
+          item.option,
+          settings.lazyPrompts.deliveryMode
         )
         if (optionResult.success) {
+          const viaChannel = settings.lazyPrompts.deliveryMode === 'channel' && settings.lazyPrompts.defaultAction === 'agent-apply'
           const message = isAgentAction
-            ? `"${item.option.label}" sent to agent`
+            ? `"${item.option.label}" sent${viaChannel ? ' via channel' : ' to agent'}`
             : `"${item.option.label}" copied to clipboard`
           showToast(message, 'success')
           onClose()
@@ -192,11 +194,14 @@ export function LazyPromptModal({ process, processPath, projectPath, onClose }: 
           item.promptType,
           settings.lazyPrompts.defaultAction,
           process,
-          processPath
+          processPath,
+          undefined,
+          settings.lazyPrompts.deliveryMode
         )
         if (result.success) {
+          const viaChannel = settings.lazyPrompts.deliveryMode === 'channel' && settings.lazyPrompts.defaultAction === 'agent-apply'
           const message = isAgentAction
-            ? 'Prompt sent to agent!'
+            ? `Prompt sent${viaChannel ? ' via channel' : ' to agent'}!`
             : 'Prompt copied to clipboard!'
           showToast(message, 'success')
           onClose()
@@ -209,7 +214,7 @@ export function LazyPromptModal({ process, processPath, projectPath, onClose }: 
         }
         break
     }
-  }, [settings.lazyPrompts.defaultAction, process, processPath, onClose, showToast])
+  }, [settings.lazyPrompts.defaultAction, settings.lazyPrompts.deliveryMode, process, processPath, onClose, showToast])
 
   // Handle creating a new agent session and sending the pending prompt
   const handleCreateAgentAndSend = useCallback(async () => {

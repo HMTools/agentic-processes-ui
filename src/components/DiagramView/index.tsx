@@ -18,6 +18,7 @@ interface DiagramViewProps {
   processPath: string
   onBack: () => void
   onNavigateToProcess: (path: string) => void
+  onOpenInOverview?: (paths: string[]) => void
   getProcess: (path: string) => ProcessInstance | undefined
   navigatedFromPath: string | null
   externalSession?: ExternalSession | null
@@ -34,7 +35,7 @@ const AGENT_PANEL_MIN_HEIGHT = 150
 const AGENT_PANEL_MAX_HEIGHT = 600
 const AGENT_PANEL_DEFAULT_HEIGHT = 300
 
-export function DiagramView({ process, processPath, onBack, onNavigateToProcess, getProcess, navigatedFromPath, externalSession, onMigrateSession }: DiagramViewProps) {
+export function DiagramView({ process, processPath, onBack, onNavigateToProcess, onOpenInOverview, getProcess, navigatedFromPath, externalSession, onMigrateSession }: DiagramViewProps) {
   const [selectedStep, setSelectedStep] = useState<ProcessStep | null>(null)
   const [memory, setMemory] = useState<ProcessMemory | null>(null)
   const [log, setLog] = useState<ProcessLog | null>(null)
@@ -230,27 +231,33 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
     return null
   }, [navigatedFromPath, process.subProcessState, resolveProcessPath])
 
-  // Handle sub-process click - navigate to the sub-process
-  const handleSubProcessClick = useCallback((subProcess: ChildProcessRef) => {
+  const handleSubProcessClick = useCallback((subProcess: ChildProcessRef, ctrlKey: boolean) => {
     const absolutePath = resolveProcessPath(subProcess.processPath)
     const targetProcess = getProcess(absolutePath)
-    if (targetProcess) {
-      onNavigateToProcess(absolutePath)
-    } else {
+    if (!targetProcess) {
       setAlertMessage(`"${subProcess.name}" process.json no longer exists`)
+      return
     }
-  }, [getProcess, onNavigateToProcess, resolveProcessPath])
+    if (ctrlKey && onOpenInOverview && processPath) {
+      onOpenInOverview([processPath, absolutePath])
+    } else {
+      onNavigateToProcess(absolutePath)
+    }
+  }, [getProcess, onNavigateToProcess, onOpenInOverview, processPath, resolveProcessPath])
 
-  // Handle parent process click - navigate to the parent process
-  const handleParentClick = useCallback((parent: ParentProcessRef) => {
+  const handleParentClick = useCallback((parent: ParentProcessRef, ctrlKey: boolean) => {
     const absolutePath = resolveProcessPath(parent.processPath)
     const targetProcess = getProcess(absolutePath)
-    if (targetProcess) {
-      onNavigateToProcess(absolutePath)
-    } else {
+    if (!targetProcess) {
       setAlertMessage(`"${parent.name}" process.json no longer exists`)
+      return
     }
-  }, [getProcess, onNavigateToProcess, resolveProcessPath])
+    if (ctrlKey && onOpenInOverview && processPath) {
+      onOpenInOverview([processPath, absolutePath])
+    } else {
+      onNavigateToProcess(absolutePath)
+    }
+  }, [getProcess, onNavigateToProcess, onOpenInOverview, processPath, resolveProcessPath])
 
   // Get subprocess data for lazy prompts
   const getSubProcess = useCallback((relativePath: string) => {
