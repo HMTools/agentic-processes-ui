@@ -45,7 +45,7 @@ export function Dashboard({
 }: DashboardProps) {
   const [filter, setFilter] = useState<FilterStatus>('active')
   const [showErrors, setShowErrors] = useState(true)
-  const [viewMode, setViewMode] = useState<ViewMode>('flat')
+  const [viewMode, setViewMode] = useState<ViewMode>('tree')
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
 
   const filteredProcesses = filter === 'all'
@@ -184,19 +184,6 @@ export function Dashboard({
           {/* View mode toggle */}
           <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-border">
             <button
-              onClick={() => setViewMode('flat')}
-              className={`p-1.5 rounded transition-colors ${
-                viewMode === 'flat'
-                  ? 'bg-accent text-background'
-                  : 'text-text-muted hover:text-text-primary'
-              }`}
-              title="Flat list"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-            <button
               onClick={() => setViewMode('tree')}
               className={`p-1.5 rounded transition-colors ${
                 viewMode === 'tree'
@@ -207,6 +194,19 @@ export function Dashboard({
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M8 12h12M12 18h8" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setViewMode('flat')}
+              className={`p-1.5 rounded transition-colors ${
+                viewMode === 'flat'
+                  ? 'bg-accent text-background'
+                  : 'text-text-muted hover:text-text-primary'
+              }`}
+              title="Flat list"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
           </div>

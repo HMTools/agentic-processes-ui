@@ -700,3 +700,22 @@ export interface StepSummary {
   filePath: string
   lastUpdated: string
 }
+
+// ============================================================================
+// Template Sources types
+// ============================================================================
+
+export interface TemplateSourceInfo {
+  name: string
+  url: string
+  branch: string
+  enabled: boolean
+  priority: number
+  lastSynced?: string
+  cached: boolean
+}
+
+export interface TemplateSourcesStatus {
+  sources: TemplateSourceInfo[]
+  settings: { autoSyncOnStale: boolean; staleDurationMinutes: number }
+}

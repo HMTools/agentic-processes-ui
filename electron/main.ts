@@ -1147,6 +1147,77 @@ ipcMain.handle('overview:navigate-to-process', (_event, processPath: string) => 
   return { success: true }
 })
 
+// ============================================================================
+// Template Sources IPC Handlers
+// ============================================================================
+
+async function runTemplateManagerCommand(args: string[]): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  const { spawn } = await import('child_process')
+  return new Promise((resolve) => {
+    const proc = spawn('python3', ['scripts/template_manager.py', ...args], {
+      cwd: join('C:', 'Projects', 'HM', 'agentic-processes')
+    })
+
+    let stdout = ''
+    let stderr = ''
+    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+    proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        try {
+          resolve({ success: true, data: JSON.parse(stdout) })
+        } catch {
+          resolve({ success: false, error: 'Failed to parse response' })
+        }
+      } else {
+        let errorMsg = stderr || 'Command failed'
+        try {
+          const parsed = JSON.parse(stdout)
+          if (parsed.message) errorMsg = parsed.message
+        } catch { /* use stderr */ }
+        resolve({ success: false, error: errorMsg })
+      }
+    })
+
+    proc.on('error', (err) => {
+      resolve({ success: false, error: err.message })
+    })
+  })
+}
+
+ipcMain.handle('template-sources:list', async () => {
+  return runTemplateManagerCommand(['list-sources'])
+})
+
+ipcMain.handle('template-sources:add', async (_event, name: string, url: string, branch: string, priority: number) => {
+  return runTemplateManagerCommand([
+    'add-source',
+    '--name', name,
+    '--url', url,
+    '--branch', branch,
+    '--priority', String(priority)
+  ])
+})
+
+ipcMain.handle('template-sources:remove', async (_event, name: string) => {
+  return runTemplateManagerCommand(['remove-source', '--name', name])
+})
+
+ipcMain.handle('template-sources:toggle', async (_event, name: string) => {
+  return runTemplateManagerCommand(['toggle-source', '--name', name])
+})
+
+ipcMain.handle('template-sources:sync', async (_event, sourceName?: string) => {
+  const args = ['sync']
+  if (sourceName) args.push('--source', sourceName)
+  return runTemplateManagerCommand(args)
+})
+
+ipcMain.handle('template-sources:status', async () => {
+  return runTemplateManagerCommand(['status'])
+})
+
 // App lifecycle
 app.whenReady().then(() => {
   // Remove default menu bar

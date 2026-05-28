@@ -376,6 +376,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
+  // ============================================================================
+  // Template Sources API
+  // ============================================================================
+
+  templateSourcesList: () =>
+    ipcRenderer.invoke('template-sources:list') as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
+  templateSourcesAdd: (name: string, url: string, branch: string, priority: number) =>
+    ipcRenderer.invoke('template-sources:add', name, url, branch, priority) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
+  templateSourcesRemove: (name: string) =>
+    ipcRenderer.invoke('template-sources:remove', name) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
+  templateSourcesToggle: (name: string) =>
+    ipcRenderer.invoke('template-sources:toggle', name) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
+  templateSourcesSync: (sourceName?: string) =>
+    ipcRenderer.invoke('template-sources:sync', sourceName) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
+  templateSourcesStatus: () =>
+    ipcRenderer.invoke('template-sources:status') as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
   // Agent event listeners
   onAgentOutput: (callback: (event: AgentOutputEvent) => void) => {
     const subscription = (_event: Electron.IpcRendererEvent, data: AgentOutputEvent) => callback(data)
@@ -451,6 +473,13 @@ declare global {
       getCurrentProcesses: () => Promise<Record<string, unknown>>
       navigateToProcessInMain: (processPath: string) => Promise<{ success: boolean }>
       onNavigateToProcessRequest: (callback: (processPath: string) => void) => () => void
+      // Template Sources API
+      templateSourcesList: () => Promise<{ success: boolean; data?: unknown; error?: string }>
+      templateSourcesAdd: (name: string, url: string, branch: string, priority: number) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      templateSourcesRemove: (name: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      templateSourcesToggle: (name: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      templateSourcesSync: (sourceName?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      templateSourcesStatus: () => Promise<{ success: boolean; data?: unknown; error?: string }>
       // Channel API
       channelIsInstalled: () => Promise<boolean>
       channelGetInstalledPath: () => Promise<string | null>

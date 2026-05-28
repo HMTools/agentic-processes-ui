@@ -155,6 +155,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeListener("navigate-to-process-request", subscription);
     };
   },
+  // ============================================================================
+  // Template Sources API
+  // ============================================================================
+  templateSourcesList: () => ipcRenderer.invoke("template-sources:list"),
+  templateSourcesAdd: (name, url, branch, priority) => ipcRenderer.invoke("template-sources:add", name, url, branch, priority),
+  templateSourcesRemove: (name) => ipcRenderer.invoke("template-sources:remove", name),
+  templateSourcesToggle: (name) => ipcRenderer.invoke("template-sources:toggle", name),
+  templateSourcesSync: (sourceName) => ipcRenderer.invoke("template-sources:sync", sourceName),
+  templateSourcesStatus: () => ipcRenderer.invoke("template-sources:status"),
   // Agent event listeners
   onAgentOutput: (callback) => {
     const subscription = (_event, data) => callback(data);
