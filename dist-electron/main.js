@@ -1935,6 +1935,14 @@ ipcMain.handle("template-sources:remove", async (_event, name) => {
 ipcMain.handle("template-sources:toggle", async (_event, name) => {
   return runTemplateManagerCommand(["toggle-source", "--name", name]);
 });
+ipcMain.handle("template-sources:update", async (_event, name, updates) => {
+  const args = ["update-source", "--name", name];
+  if (updates.newName) args.push("--new-name", updates.newName);
+  if (updates.url) args.push("--url", updates.url);
+  if (updates.branch) args.push("--branch", updates.branch);
+  if (updates.priority !== void 0) args.push("--priority", String(updates.priority));
+  return runTemplateManagerCommand(args);
+});
 ipcMain.handle("template-sources:sync", async (_event, sourceName) => {
   const args = ["sync"];
   if (sourceName) args.push("--source", sourceName);

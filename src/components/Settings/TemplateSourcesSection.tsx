@@ -25,6 +25,11 @@ export function TemplateSourcesSection() {
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
 
+  const [editingSource, setEditingSource] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<AddFormState>(EMPTY_FORM)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
   const [removeLoading, setRemoveLoading] = useState(false)
 
@@ -105,6 +110,59 @@ export function TemplateSourcesSection() {
     setRemoveLoading(false)
   }
 
+  const handleStartEdit = (source: TemplateSourceInfo) => {
+    setShowAddForm(false)
+    setAddError(null)
+    setEditingSource(source.name)
+    setEditForm({
+      name: source.name,
+      url: source.url,
+      branch: source.branch,
+      priority: String(source.priority),
+    })
+    setEditError(null)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingSource(null)
+    setEditForm(EMPTY_FORM)
+    setEditError(null)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingSource) return
+    setEditError(null)
+
+    const trimmedName = editForm.name.trim()
+    const trimmedUrl = editForm.url.trim()
+    if (!trimmedName) { setEditError('Name is required'); return }
+    if (!trimmedUrl) { setEditError('URL is required'); return }
+    if (trimmedName !== editingSource && sources.some(s => s.name === trimmedName)) {
+      setEditError('A source with this name already exists'); return
+    }
+    const priority = parseInt(editForm.priority, 10)
+    if (isNaN(priority) || priority < 1) { setEditError('Priority must be a positive number'); return }
+
+    if (!window.electronAPI?.templateSourcesUpdate) return
+
+    setEditLoading(true)
+    const updates: { newName?: string; url?: string; branch?: string; priority?: number } = {}
+    if (trimmedName !== editingSource) updates.newName = trimmedName
+    updates.url = trimmedUrl
+    updates.branch = editForm.branch.trim() || 'main'
+    updates.priority = priority
+
+    const result = await window.electronAPI.templateSourcesUpdate(editingSource, updates)
+    if (result.success) {
+      setEditingSource(null)
+      setEditForm(EMPTY_FORM)
+      await loadSources()
+    } else {
+      setEditError(result.error || 'Failed to update source')
+    }
+    setEditLoading(false)
+  }
+
   const formatLastSynced = (iso?: string) => {
     if (!iso) return 'Never'
     try {
@@ -151,7 +209,7 @@ export function TemplateSourcesSection() {
               {syncing === '__all__' ? 'Syncing...' : 'Sync All'}
             </button>
             <button
-              onClick={() => { setShowAddForm(!showAddForm); setAddError(null) }}
+              onClick={() => { setShowAddForm(!showAddForm); setAddError(null); setEditingSource(null); setEditError(null) }}
               className="px-3 py-1.5 text-xs font-medium rounded-lg text-accent hover:bg-accent/10 transition-colors flex items-center gap-1.5"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -274,62 +332,146 @@ export function TemplateSourcesSection() {
 
         {/* Source list */}
         {!loading && sources.map(source => (
-          <div key={source.name} className="p-3 rounded-lg border border-border bg-background">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium text-text-primary">{source.name}</span>
-                  <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-surface-elevated text-text-muted border border-border">
-                    {source.branch}
-                  </span>
-                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-surface-elevated text-text-muted border border-border">
-                    p:{source.priority}
-                  </span>
-                  {source.cached && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-status-completed/10 text-status-completed border border-status-completed/20">
-                      cached
-                    </span>
-                  )}
+          editingSource === source.name ? (
+            <div key={source.name} className="p-4 rounded-lg border border-accent/30 bg-accent/5 space-y-3">
+              <h3 className="text-sm font-medium text-text-primary">Edit Template Source</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-text-muted block mb-1">Name *</label>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="my-templates"
+                    className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent"
+                  />
                 </div>
-                <p className="text-xs text-text-muted font-mono truncate" title={source.url}>
-                  {source.url}
-                </p>
-                <p className="text-[10px] text-text-muted mt-1">
-                  Last synced: {formatLastSynced(source.lastSynced)}
-                </p>
+                <div>
+                  <label className="text-xs text-text-muted block mb-1">Branch</label>
+                  <input
+                    type="text"
+                    value={editForm.branch}
+                    onChange={e => setEditForm(f => ({ ...f, branch: e.target.value }))}
+                    placeholder="main"
+                    className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-text-muted block mb-1">Git URL *</label>
+                  <input
+                    type="text"
+                    value={editForm.url}
+                    onChange={e => setEditForm(f => ({ ...f, url: e.target.value }))}
+                    placeholder="https://github.com/org/templates.git"
+                    className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg text-text-primary font-mono text-xs focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-text-muted block mb-1">Priority</label>
+                  <input
+                    type="number"
+                    value={editForm.priority}
+                    onChange={e => setEditForm(f => ({ ...f, priority: e.target.value }))}
+                    min="1"
+                    className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent"
+                  />
+                  <p className="text-[10px] text-text-muted mt-0.5">Lower number = higher priority</p>
+                </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <Toggle
-                  id={`source-toggle-${source.name}`}
-                  checked={source.enabled}
-                  onChange={() => handleToggle(source.name)}
-                />
+              {editError && (
+                <div className="px-3 py-2 text-xs text-status-failed bg-status-failed/10 border border-status-failed/20 rounded-lg">
+                  {editError}
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
                 <button
-                  onClick={() => handleSync(source.name)}
-                  disabled={syncing !== null}
-                  title="Sync this source"
-                  className={`p-1.5 rounded-md transition-colors ${
-                    syncing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-surface text-text-muted hover:text-accent'
-                  }`}
+                  onClick={handleCancelEdit}
+                  className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors rounded-lg"
                 >
-                  <svg className={`w-4 h-4 ${syncing === source.name ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
+                  Cancel
                 </button>
                 <button
-                  onClick={() => setRemoveTarget(source.name)}
-                  title="Remove this source"
-                  className="p-1.5 rounded-md text-text-muted hover:text-status-failed hover:bg-status-failed/10 transition-colors"
+                  onClick={handleSaveEdit}
+                  disabled={editLoading}
+                  className={`px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent/90 rounded-lg transition-colors ${
+                    editLoading ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
+                  {editLoading ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </div>
-          </div>
+          ) : (
+            <div key={source.name} className="p-3 rounded-lg border border-border bg-background">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-medium text-text-primary">{source.name}</span>
+                    <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-surface-elevated text-text-muted border border-border">
+                      {source.branch}
+                    </span>
+                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-surface-elevated text-text-muted border border-border">
+                      p:{source.priority}
+                    </span>
+                    {source.cached && (
+                      <span className="px-1.5 py-0.5 text-[10px] rounded bg-status-completed/10 text-status-completed border border-status-completed/20">
+                        cached
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-text-muted font-mono truncate" title={source.url}>
+                    {source.url}
+                  </p>
+                  <p className="text-[10px] text-text-muted mt-1">
+                    Last synced: {formatLastSynced(source.lastSynced)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Toggle
+                    id={`source-toggle-${source.name}`}
+                    checked={source.enabled}
+                    onChange={() => handleToggle(source.name)}
+                  />
+                  <button
+                    onClick={() => handleStartEdit(source)}
+                    disabled={syncing !== null}
+                    title="Edit this source"
+                    className={`p-1.5 rounded-md transition-colors ${
+                      syncing ? 'opacity-50 cursor-not-allowed' : 'text-text-muted hover:text-accent hover:bg-accent/10'
+                    }`}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => handleSync(source.name)}
+                    disabled={syncing !== null}
+                    title="Sync this source"
+                    className={`p-1.5 rounded-md transition-colors ${
+                      syncing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-surface text-text-muted hover:text-accent'
+                    }`}
+                  >
+                    <svg className={`w-4 h-4 ${syncing === source.name ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setRemoveTarget(source.name)}
+                    title="Remove this source"
+                    className="p-1.5 rounded-md text-text-muted hover:text-status-failed hover:bg-status-failed/10 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
         ))}
       </div>
 

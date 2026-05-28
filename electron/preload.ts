@@ -392,6 +392,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   templateSourcesToggle: (name: string) =>
     ipcRenderer.invoke('template-sources:toggle', name) as Promise<{ success: boolean; data?: unknown; error?: string }>,
 
+  templateSourcesUpdate: (name: string, updates: { newName?: string; url?: string; branch?: string; priority?: number }) =>
+    ipcRenderer.invoke('template-sources:update', name, updates) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
   templateSourcesSync: (sourceName?: string) =>
     ipcRenderer.invoke('template-sources:sync', sourceName) as Promise<{ success: boolean; data?: unknown; error?: string }>,
 
@@ -478,6 +481,7 @@ declare global {
       templateSourcesAdd: (name: string, url: string, branch: string, priority: number) => Promise<{ success: boolean; data?: unknown; error?: string }>
       templateSourcesRemove: (name: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
       templateSourcesToggle: (name: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      templateSourcesUpdate: (name: string, updates: { newName?: string; url?: string; branch?: string; priority?: number }) => Promise<{ success: boolean; data?: unknown; error?: string }>
       templateSourcesSync: (sourceName?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
       templateSourcesStatus: () => Promise<{ success: boolean; data?: unknown; error?: string }>
       // Channel API

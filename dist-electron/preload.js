@@ -162,6 +162,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   templateSourcesAdd: (name, url, branch, priority) => ipcRenderer.invoke("template-sources:add", name, url, branch, priority),
   templateSourcesRemove: (name) => ipcRenderer.invoke("template-sources:remove", name),
   templateSourcesToggle: (name) => ipcRenderer.invoke("template-sources:toggle", name),
+  templateSourcesUpdate: (name, updates) => ipcRenderer.invoke("template-sources:update", name, updates),
   templateSourcesSync: (sourceName) => ipcRenderer.invoke("template-sources:sync", sourceName),
   templateSourcesStatus: () => ipcRenderer.invoke("template-sources:status"),
   // Agent event listeners
