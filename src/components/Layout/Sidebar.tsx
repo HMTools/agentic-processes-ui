@@ -85,7 +85,7 @@ export function Sidebar({
           label="Dashboard"
           active={currentView === 'dashboard'}
           onClick={onNavigateToDashboard}
-          badge={processCount > 0 ? processCount : undefined}
+          badge={activeCount > 0 ? activeCount : undefined}
         />
         <NavButton
           icon={

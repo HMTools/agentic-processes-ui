@@ -89,27 +89,56 @@ export function formatCategoryName(category: string): string {
 // Get step reference display name
 export function getStepRefDisplayName(stepRef: string): string {
   if (!stepRef) return ''
-  // Format: @step:category/step-name -> Step Name
-  // Also handles legacy @framework-step: and @user-step: for backward compat
-  const match = stepRef.match(/@(?:step|framework-step|user-step):[\w-]+\/([\w-]+)/)
-  if (match) {
-    return match[1]
+
+  // Simple name format (new): "understand-context" -> "Understand Context"
+  if (!stepRef.startsWith('@')) {
+    return stepRef
       .split('-')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ')
   }
+
+  // @framework-step:name -> extract name and titleize
+  const fwMatch = stepRef.match(/@framework-step:([\w-]+)/)
+  if (fwMatch) {
+    return fwMatch[1]
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
+  // Legacy @step:category/step-name -> extract name and titleize
+  const legacyMatch = stepRef.match(/@(?:step|user-step):[\w-]+\/([\w-]+)/)
+  if (legacyMatch) {
+    return legacyMatch[1]
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
   return stepRef
 }
 
 // Parse step reference to get category and name
 export function parseStepRef(stepRef: string): { category: string; name: string } | null {
-  // Handles @step:, @framework-step:, @user-step: for backward compat
-  const match = stepRef.match(/@(?:step|framework-step|user-step):([\w-]+)\/([\w-]+)/)
-  if (match) {
-    return {
-      category: match[1],
-      name: match[2]
-    }
+  if (!stepRef) return null
+
+  // Simple name format (new): treat as name with empty category
+  if (!stepRef.startsWith('@')) {
+    return { category: '', name: stepRef }
   }
+
+  // @framework-step:name
+  const fwMatch = stepRef.match(/@framework-step:([\w-]+)/)
+  if (fwMatch) {
+    return { category: 'framework', name: fwMatch[1] }
+  }
+
+  // Legacy @step:category/step-name and @user-step:category/step-name
+  const legacyMatch = stepRef.match(/@(?:step|user-step):([\w-]+)\/([\w-]+)/)
+  if (legacyMatch) {
+    return { category: legacyMatch[1], name: legacyMatch[2] }
+  }
+
   return null
 }

@@ -98,6 +98,7 @@ export interface ProcessStep {
   completedAt?: ISOTimestamp
   approvalRequired?: boolean
   approved?: boolean
+  stepDefinition: Record<string, unknown>
 }
 
 export interface ChildProcessRef {
@@ -583,6 +584,7 @@ export interface TemplateStep {
     forEach?: string
     syncPoint?: string
   }
+  stepDefinition: Record<string, unknown>
 }
 
 export interface TemplatePhase {

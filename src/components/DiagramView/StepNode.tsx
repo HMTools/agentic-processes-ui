@@ -104,7 +104,7 @@ export const StepNode = memo(function StepNode({ data, selected }: StepNodeProps
           </h4>
           {step.stepRef && (
             <p className="text-[10px] text-text-muted mt-1 font-mono truncate">
-              {step.stepRef.replace('@step:', '').replace('@framework-step:', '').replace('@user-step:', '')}
+              {step.stepRef.startsWith('@') ? step.stepRef.replace('@step:', '').replace('@framework-step:', '').replace('@user-step:', '') : step.stepRef}
             </p>
           )}
         </div>
