@@ -247,21 +247,21 @@ ipcMain.handle('read-process-file', async (_event, processPath: string, fileName
 ipcMain.handle('list-process-files', async (_event, processPath: string) => {
   try {
     const processDir = dirname(processPath)
-    
+
     if (!existsSync(processDir)) {
       console.log(`Process directory not found: ${processDir}`)
       return []
     }
-    
+
     const entries = await readdir(processDir)
     const files = []
-    
+
     for (const entry of entries) {
       const ext = extname(entry).toLowerCase()
       if (ext === '.md' || ext === '.json') {
         const filePath = join(processDir, entry)
         const fileStat = await stat(filePath)
-        
+
         if (fileStat.isFile()) {
           files.push({
             name: entry,
@@ -273,13 +273,9 @@ ipcMain.handle('list-process-files', async (_event, processPath: string) => {
         }
       }
     }
-    
-    // Sort: process.md first, then alphabetically
-    files.sort((a, b) => {
-      if (a.name === 'process.md') return -1
-      if (b.name === 'process.md') return 1
-      return a.name.localeCompare(b.name)
-    })
+
+    // Sort alphabetically
+    files.sort((a, b) => a.name.localeCompare(b.name))
     
     return files
   } catch (error) {
@@ -573,10 +569,41 @@ ipcMain.handle('get-qa-session-status', async (_event, processPath: string) => {
   }
 })
 
-// Load all process templates from ~/.claude/agentic-processes/templates/ (unified)
+const STEP_EMBED_FIELDS = [
+  'output', 'guidance', 'substeps', 'flow', 'memoryFileUsage', 'parameters',
+  'improvementCategories', 'prioritization', 'workflow',
+  'successCriteria', 'complianceChecklist', 'searchModes',
+  'changeProposalFormat', 'captureTypes'
+]
+
+async function resolveStepDefinitions(template: any, templateDir: string) {
+  if (!template.steps || !Array.isArray(template.steps)) return
+  for (const step of template.steps) {
+    if (!step.stepRef) continue
+    if (step.stepDefinition && Object.keys(step.stepDefinition).length > 0) continue
+    const stepJsonPath = join(templateDir, step.stepRef, `${step.stepRef}.json`)
+    if (existsSync(stepJsonPath)) {
+      try {
+        const stepContent = await readFile(stepJsonPath, 'utf-8')
+        const stepData = JSON.parse(stepContent)
+        const embedded: Record<string, unknown> = {}
+        for (const field of STEP_EMBED_FIELDS) {
+          if (field in stepData) {
+            embedded[field] = stepData[field]
+          }
+        }
+        step.stepDefinition = embedded
+      } catch (err) {
+        console.error(`Error resolving step definition: ${stepJsonPath}`, err)
+      }
+    }
+  }
+}
+
+// Load all process templates from ~/.claude/agentic-processes/templates/processes/ (unified)
 ipcMain.handle('load-process-templates', async () => {
   try {
-    const templatesPath = join(homedir(), '.claude', 'agentic-processes', 'templates')
+    const templatesPath = join(homedir(), '.claude', 'agentic-processes', 'templates', 'processes')
 
     if (!existsSync(templatesPath)) {
       console.log(`Templates directory not found: ${templatesPath}`)
@@ -603,10 +630,7 @@ ipcMain.handle('load-process-templates', async () => {
           const template = JSON.parse(content)
           if (template.type === 'template') {
             template.filePath = directTemplateJson
-            template.markdownPath = join(categoryPath, `${category}.md`)
-            if (existsSync(template.markdownPath)) {
-              template.markdownContent = await readFile(template.markdownPath, 'utf-8')
-            }
+            await resolveStepDefinitions(template, categoryPath)
             templates.push(template)
           }
         } catch (err) {
@@ -635,10 +659,7 @@ ipcMain.handle('load-process-templates', async () => {
 
             if (template.type === 'template') {
               template.filePath = jsonPath
-              template.markdownPath = join(templatePath, `${templateName}.md`)
-              if (existsSync(template.markdownPath)) {
-                template.markdownContent = await readFile(template.markdownPath, 'utf-8')
-              }
+              await resolveStepDefinitions(template, templatePath)
               templates.push(template)
             }
           } catch (err) {
@@ -655,10 +676,10 @@ ipcMain.handle('load-process-templates', async () => {
   }
 })
 
-// Load all step templates from ~/.claude/agentic-processes/steps/ (unified)
+// Load all step templates from ~/.claude/agentic-processes/templates/steps/ (unified)
 ipcMain.handle('load-step-templates', async () => {
   try {
-    const stepsPath = join(homedir(), '.claude', 'agentic-processes', 'steps')
+    const stepsPath = join(homedir(), '.claude', 'agentic-processes', 'templates', 'steps')
 
     if (!existsSync(stepsPath)) {
       console.log(`Steps directory not found: ${stepsPath}`)
@@ -696,10 +717,6 @@ ipcMain.handle('load-step-templates', async () => {
 
             if (step.type === 'step') {
               step.filePath = jsonPath
-              step.markdownPath = join(stepPath, `${stepName}.md`)
-              if (existsSync(step.markdownPath)) {
-                step.markdownContent = await readFile(step.markdownPath, 'utf-8')
-              }
               steps.push(step)
             }
           } catch (err) {

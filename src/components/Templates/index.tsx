@@ -1,12 +1,18 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useTemplates } from '../../hooks/useTemplates'
 import { useFavoriteTemplates } from '../../hooks/useFavoriteTemplates'
-import type { ProcessTemplate, StepTemplate } from '../../types'
+import type { ProcessTemplate } from '../../types'
 import { ProcessTemplateList } from './ProcessTemplateList'
-import { StepTemplateList } from './StepTemplateList'
 import { TemplateDetail } from './TemplateDetail'
+import { BlueprintDrawer } from './BlueprintDrawer'
+import { StepDetailModal } from './StepDetailModal'
 
 const FAVORITES_FILTER = '__favorites__'
+
+interface NavigationEntry {
+  template: ProcessTemplate
+  stepIndex: number
+}
 
 interface TemplatesProps {
   /** @deprecated No longer used -- templates load from ~/.claude/agentic-processes/ */
@@ -15,11 +21,11 @@ interface TemplatesProps {
   projectPaths: string[]
   onBack: () => void
   onUseTemplate?: (template: ProcessTemplate) => void
+  initialSelectedTemplate?: ProcessTemplate | null
+  onInitialTemplateConsumed?: () => void
 }
 
-type TabType = 'process' | 'step'
-
-export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }: TemplatesProps) {
+export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate, initialSelectedTemplate, onInitialTemplateConsumed }: TemplatesProps) {
   const {
     processTemplates,
     stepTemplates,
@@ -32,40 +38,93 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }
 
   const { isFavorite, toggleFavorite, countFavorites } = useFavoriteTemplates()
 
-  const [activeTab, setActiveTab] = useState<TabType>('process')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [selectedTemplate, setSelectedTemplate] = useState<ProcessTemplate | StepTemplate | null>(null)
+  const [selectedTemplate, setSelectedTemplate] = useState<ProcessTemplate | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [blueprintDrawerOpen, setBlueprintDrawerOpen] = useState(false)
+  const [expandedStepIndex, setExpandedStepIndex] = useState<number | null>(null)
+  const [navigationStack, setNavigationStack] = useState<NavigationEntry[]>([])
+  const [highlightedStepIndex, setHighlightedStepIndex] = useState<number | null>(null)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleTabChange = useCallback((tab: TabType) => {
-    setActiveTab(tab)
-    setSelectedCategory(null)
-    setSelectedTemplate(null)
-    setSearchQuery('')
-  }, [])
+  useEffect(() => {
+    if (initialSelectedTemplate) {
+      setSelectedTemplate(initialSelectedTemplate)
+      if (initialSelectedTemplate.category) {
+        setSelectedCategory(initialSelectedTemplate.category)
+      }
+      setSearchQuery('')
+      onInitialTemplateConsumed?.()
+    }
+  }, [initialSelectedTemplate, onInitialTemplateConsumed])
 
-  const handleSelectTemplate = useCallback((template: ProcessTemplate | StepTemplate) => {
+  const handleSelectTemplate = useCallback((template: ProcessTemplate) => {
     setSelectedTemplate(template)
+    setExpandedStepIndex(null)
+    setNavigationStack([])
+    setHighlightedStepIndex(null)
   }, [])
 
   const handleCloseDetail = useCallback(() => {
     setSelectedTemplate(null)
+    setExpandedStepIndex(null)
   }, [])
 
-  // Wrap isFavorite / toggleFavorite for the active tab type
   const isTemplateFavorite = useCallback((name: string) => {
-    return isFavorite(activeTab, name)
-  }, [isFavorite, activeTab])
+    return isFavorite('process', name)
+  }, [isFavorite])
 
   const handleToggleFavorite = useCallback((name: string) => {
-    toggleFavorite(activeTab, name)
-  }, [toggleFavorite, activeTab])
+    toggleFavorite('process', name)
+  }, [toggleFavorite])
 
-  const categories = activeTab === 'process' ? processCategories : stepCategories
-  const templateCount = activeTab === 'process' ? processTemplates.length : stepTemplates.length
-  const favoritesCount = countFavorites(activeTab)
+  const handleStepClick = useCallback((index: number | null) => {
+    setExpandedStepIndex(index)
+  }, [])
 
-  // When the favorites filter is active, pre-filter templates to only favorites
+  const handleStepNavigate = useCallback((index: number) => {
+    setExpandedStepIndex(index)
+  }, [])
+
+  const handleStepModalClose = useCallback(() => {
+    setExpandedStepIndex(null)
+  }, [])
+
+  const handleSubProcessClick = useCallback((templateName: string, stepIndex: number) => {
+    const target = processTemplates.find(t => t.name === templateName)
+      || processTemplates.find(t => templateName.includes('/') && t.name === templateName.split('/').pop())
+    if (target && selectedTemplate) {
+      setNavigationStack(prev => [...prev, { template: selectedTemplate, stepIndex }])
+      setSelectedTemplate(target)
+      setExpandedStepIndex(null)
+      setHighlightedStepIndex(null)
+      if (target.category && target.category !== selectedCategory) {
+        setSelectedCategory(target.category)
+      }
+    }
+  }, [processTemplates, selectedTemplate, selectedCategory])
+
+  const handleNavigateBack = useCallback(() => {
+    setNavigationStack(prev => {
+      const next = [...prev]
+      const entry = next.pop()
+      if (entry) {
+        setSelectedTemplate(entry.template)
+        setExpandedStepIndex(null)
+        setHighlightedStepIndex(entry.stepIndex)
+        if (entry.template.category && entry.template.category !== selectedCategory) {
+          setSelectedCategory(entry.template.category)
+        }
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+        highlightTimerRef.current = setTimeout(() => setHighlightedStepIndex(null), 2500)
+      }
+      return next
+    })
+  }, [selectedCategory])
+
+  const templateCount = processTemplates.length
+  const favoritesCount = countFavorites('process')
+
   const showingFavorites = selectedCategory === FAVORITES_FILTER
 
   const displayedProcessTemplates = useMemo(() => {
@@ -73,13 +132,15 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }
     return processTemplates.filter(t => isFavorite('process', t.name))
   }, [processTemplates, showingFavorites, isFavorite])
 
-  const displayedStepTemplates = useMemo(() => {
-    if (!showingFavorites) return stepTemplates
-    return stepTemplates.filter(t => isFavorite('step', t.name))
-  }, [stepTemplates, showingFavorites, isFavorite])
-
-  // Pass null as category to list components when showing favorites (already pre-filtered)
   const listCategory = showingFavorites ? null : selectedCategory
+
+  const isStepFavorite = useCallback((name: string) => {
+    return isFavorite('step', name)
+  }, [isFavorite])
+
+  const handleToggleStepFavorite = useCallback((name: string) => {
+    toggleFavorite('step', name)
+  }, [toggleFavorite])
 
   return (
     <div className="h-full w-full flex flex-col bg-background">
@@ -96,48 +157,50 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }
               </svg>
             </button>
             <div>
-              <h1 className="text-lg font-semibold text-text-primary">Templates</h1>
+              <h1 className="text-lg font-semibold text-text-primary">Process Templates</h1>
               <p className="text-xs text-text-muted">
-                Browse and manage process and step templates
+                Browse and use process templates
               </p>
             </div>
           </div>
-          
-          {/* Refresh button */}
-          <button
-            onClick={loadTemplates}
-            disabled={isLoading}
-            className="p-2 rounded-lg hover:bg-surface transition-colors disabled:opacity-50"
-            title="Refresh templates"
-          >
-            <svg 
-              className={`w-5 h-5 text-text-secondary ${isLoading ? 'animate-spin' : ''}`} 
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          </button>
-        </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mt-4 bg-surface rounded-lg p-1">
-          <TabButton
-            active={activeTab === 'process'}
-            onClick={() => handleTabChange('process')}
-            count={processTemplates.length}
-          >
-            Process Templates
-          </TabButton>
-          <TabButton
-            active={activeTab === 'step'}
-            onClick={() => handleTabChange('step')}
-            count={stepTemplates.length}
-          >
-            Step Templates
-          </TabButton>
+          <div className="flex items-center gap-2">
+            {/* Blueprints button */}
+            <button
+              onClick={() => setBlueprintDrawerOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface transition-colors"
+              title="Browse step blueprints"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <span className="text-sm">Blueprints</span>
+              {stepTemplates.length > 0 && (
+                <span className="px-1.5 py-0.5 text-xs rounded bg-surface-elevated text-text-muted">
+                  {stepTemplates.length}
+                </span>
+              )}
+            </button>
+
+            {/* Refresh button */}
+            <button
+              onClick={loadTemplates}
+              disabled={isLoading}
+              className="p-2 rounded-lg hover:bg-surface transition-colors disabled:opacity-50"
+              title="Refresh templates"
+            >
+              <svg
+                className={`w-5 h-5 text-text-secondary ${isLoading ? 'animate-spin' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -148,7 +211,7 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }
             <div className="text-center max-w-md">
               <div className="w-12 h-12 rounded-full bg-status-failed/20 flex items-center justify-center mx-auto mb-4">
                 <svg className="w-6 h-6 text-status-failed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
@@ -227,7 +290,7 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }
                   >
                     All ({templateCount})
                   </CategoryButton>
-                  {categories.map(category => (
+                  {processCategories.map(category => (
                     <CategoryButton
                       key={category}
                       active={selectedCategory === category}
@@ -243,27 +306,15 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }
             {/* Template list */}
             <div className="flex-1 overflow-hidden flex">
               <div className={`flex-1 overflow-y-auto ${selectedTemplate ? 'w-1/2' : 'w-full'}`}>
-                {activeTab === 'process' ? (
-                  <ProcessTemplateList
-                    templates={displayedProcessTemplates}
-                    selectedCategory={listCategory}
-                    searchQuery={searchQuery}
-                    selectedTemplate={selectedTemplate as ProcessTemplate | null}
-                    onSelectTemplate={handleSelectTemplate}
-                    isFavorite={isTemplateFavorite}
-                    onToggleFavorite={handleToggleFavorite}
-                  />
-                ) : (
-                  <StepTemplateList
-                    templates={displayedStepTemplates}
-                    selectedCategory={listCategory}
-                    searchQuery={searchQuery}
-                    selectedTemplate={selectedTemplate as StepTemplate | null}
-                    onSelectTemplate={handleSelectTemplate}
-                    isFavorite={isTemplateFavorite}
-                    onToggleFavorite={handleToggleFavorite}
-                  />
-                )}
+                <ProcessTemplateList
+                  templates={displayedProcessTemplates}
+                  selectedCategory={listCategory}
+                  searchQuery={searchQuery}
+                  selectedTemplate={selectedTemplate}
+                  onSelectTemplate={handleSelectTemplate}
+                  isFavorite={isTemplateFavorite}
+                  onToggleFavorite={handleToggleFavorite}
+                />
               </div>
 
               {/* Detail panel */}
@@ -271,9 +322,16 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }
                 <div className="w-1/2 border-l border-border overflow-hidden">
                   <TemplateDetail
                     template={selectedTemplate}
-                    templateType={activeTab}
+                    templateType="process"
                     onClose={handleCloseDetail}
                     onUseTemplate={onUseTemplate}
+                    expandedStepIndex={expandedStepIndex}
+                    onStepClick={handleStepClick}
+                    onSubProcessClick={handleSubProcessClick}
+                    parentTemplateName={navigationStack.length > 0 ? navigationStack[navigationStack.length - 1].template.metadata.title : undefined}
+                    parentStepName={navigationStack.length > 0 ? navigationStack[navigationStack.length - 1].template.steps[navigationStack[navigationStack.length - 1].stepIndex]?.name : undefined}
+                    onNavigateBack={navigationStack.length > 0 ? handleNavigateBack : undefined}
+                    highlightedStepIndex={highlightedStepIndex}
                   />
                 </div>
               )}
@@ -281,37 +339,27 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate }
           </>
         )}
       </div>
+
+      {/* Blueprint drawer */}
+      <BlueprintDrawer
+        open={blueprintDrawerOpen}
+        onClose={() => setBlueprintDrawerOpen(false)}
+        stepTemplates={stepTemplates}
+        stepCategories={stepCategories}
+        isFavorite={isStepFavorite}
+        onToggleFavorite={handleToggleStepFavorite}
+      />
+
+      {/* Step detail modal */}
+      {expandedStepIndex !== null && selectedTemplate && (
+        <StepDetailModal
+          steps={selectedTemplate.steps}
+          currentIndex={expandedStepIndex}
+          onNavigate={handleStepNavigate}
+          onClose={handleStepModalClose}
+        />
+      )}
     </div>
-  )
-}
-
-// Tab button component
-interface TabButtonProps {
-  active: boolean
-  onClick: () => void
-  count: number
-  children: React.ReactNode
-}
-
-function TabButton({ active, onClick, count, children }: TabButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={`
-        flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors
-        ${active 
-          ? 'bg-accent text-background' 
-          : 'text-text-secondary hover:text-text-primary hover:bg-surface-elevated'
-        }
-      `}
-    >
-      {children}
-      <span className={`ml-2 px-1.5 py-0.5 text-xs rounded ${
-        active ? 'bg-background/20' : 'bg-surface-elevated'
-      }`}>
-        {count}
-      </span>
-    </button>
   )
 }
 
@@ -329,8 +377,8 @@ function CategoryButton({ active, onClick, icon, children }: CategoryButtonProps
       onClick={onClick}
       className={`
         w-full px-3 py-1.5 text-xs text-left rounded-md transition-colors flex items-center gap-1.5
-        ${active 
-          ? 'bg-accent/20 text-accent font-medium' 
+        ${active
+          ? 'bg-accent/20 text-accent font-medium'
           : 'text-text-secondary hover:text-text-primary hover:bg-surface'
         }
       `}

@@ -1197,11 +1197,7 @@ ipcMain.handle("list-process-files", async (_event, processPath) => {
         }
       }
     }
-    files.sort((a, b) => {
-      if (a.name === "process.md") return -1;
-      if (b.name === "process.md") return 1;
-      return a.name.localeCompare(b.name);
-    });
+    files.sort((a, b) => a.name.localeCompare(b.name));
     return files;
   } catch (error) {
     console.error("Error listing process files:", error);
@@ -1422,9 +1418,48 @@ ipcMain.handle("get-qa-session-status", async (_event, processPath) => {
     return null;
   }
 });
+const STEP_EMBED_FIELDS = [
+  "output",
+  "guidance",
+  "substeps",
+  "flow",
+  "memoryFileUsage",
+  "parameters",
+  "improvementCategories",
+  "prioritization",
+  "workflow",
+  "successCriteria",
+  "complianceChecklist",
+  "searchModes",
+  "changeProposalFormat",
+  "captureTypes"
+];
+async function resolveStepDefinitions(template, templateDir) {
+  if (!template.steps || !Array.isArray(template.steps)) return;
+  for (const step of template.steps) {
+    if (!step.stepRef) continue;
+    if (step.stepDefinition && Object.keys(step.stepDefinition).length > 0) continue;
+    const stepJsonPath = join(templateDir, step.stepRef, `${step.stepRef}.json`);
+    if (existsSync(stepJsonPath)) {
+      try {
+        const stepContent = await readFile(stepJsonPath, "utf-8");
+        const stepData = JSON.parse(stepContent);
+        const embedded = {};
+        for (const field of STEP_EMBED_FIELDS) {
+          if (field in stepData) {
+            embedded[field] = stepData[field];
+          }
+        }
+        step.stepDefinition = embedded;
+      } catch (err) {
+        console.error(`Error resolving step definition: ${stepJsonPath}`, err);
+      }
+    }
+  }
+}
 ipcMain.handle("load-process-templates", async () => {
   try {
-    const templatesPath = join(homedir(), ".claude", "agentic-processes", "templates");
+    const templatesPath = join(homedir(), ".claude", "agentic-processes", "templates", "processes");
     if (!existsSync(templatesPath)) {
       console.log(`Templates directory not found: ${templatesPath}`);
       return [];
@@ -1444,10 +1479,7 @@ ipcMain.handle("load-process-templates", async () => {
           const template = JSON.parse(content);
           if (template.type === "template") {
             template.filePath = directTemplateJson;
-            template.markdownPath = join(categoryPath, `${category}.md`);
-            if (existsSync(template.markdownPath)) {
-              template.markdownContent = await readFile(template.markdownPath, "utf-8");
-            }
+            await resolveStepDefinitions(template, categoryPath);
             templates.push(template);
           }
         } catch (err) {
@@ -1469,10 +1501,7 @@ ipcMain.handle("load-process-templates", async () => {
             const template = JSON.parse(content);
             if (template.type === "template") {
               template.filePath = jsonPath;
-              template.markdownPath = join(templatePath, `${templateName}.md`);
-              if (existsSync(template.markdownPath)) {
-                template.markdownContent = await readFile(template.markdownPath, "utf-8");
-              }
+              await resolveStepDefinitions(template, templatePath);
               templates.push(template);
             }
           } catch (err) {
@@ -1489,7 +1518,7 @@ ipcMain.handle("load-process-templates", async () => {
 });
 ipcMain.handle("load-step-templates", async () => {
   try {
-    const stepsPath = join(homedir(), ".claude", "agentic-processes", "steps");
+    const stepsPath = join(homedir(), ".claude", "agentic-processes", "templates", "steps");
     if (!existsSync(stepsPath)) {
       console.log(`Steps directory not found: ${stepsPath}`);
       return [];
@@ -1516,10 +1545,6 @@ ipcMain.handle("load-step-templates", async () => {
             const step = JSON.parse(content);
             if (step.type === "step") {
               step.filePath = jsonPath;
-              step.markdownPath = join(stepPath, `${stepName}.md`);
-              if (existsSync(step.markdownPath)) {
-                step.markdownContent = await readFile(step.markdownPath, "utf-8");
-              }
               steps.push(step);
             }
           } catch (err) {

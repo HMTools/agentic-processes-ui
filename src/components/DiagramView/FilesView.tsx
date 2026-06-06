@@ -14,7 +14,6 @@ const isElectron = () => {
 
 const FRAMEWORK_FILES = new Set([
   'process.json',
-  'process.md',
   'log.json',
   'memory.json',
   'pending-interaction.json',

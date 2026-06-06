@@ -112,6 +112,7 @@ function App() {
   const [selectedProcessPath, setSelectedProcessPath] = useState<string | null>(null)
   const [navigatedFromPath, setNavigatedFromPath] = useState<string | null>(null)
   const [overviewInitialPaths, setOverviewInitialPaths] = useState<string[] | null>(null)
+  const [initialSelectedTemplate, setInitialSelectedTemplate] = useState<ProcessTemplate | null>(null)
   const selectedProcess = selectedProcessPath ? getProcess(selectedProcessPath) : null
 
   // New Process Modal state
@@ -147,6 +148,16 @@ function App() {
     setSelectedProcessPath(null)
     setNavigatedFromPath(null)
   }, [])
+
+  const handleNavigateToTemplate = useCallback((templateName: string, templateCategory: string) => {
+    const matched = processTemplates.find(t => t.name === templateName && t.category === templateCategory)
+    if (matched) {
+      setInitialSelectedTemplate(matched)
+      setCurrentView('templates')
+      setSelectedProcessPath(null)
+      setNavigatedFromPath(null)
+    }
+  }, [processTemplates])
 
   const handleNavigateToAgentSessions = useCallback(() => {
     setCurrentView('agent-sessions')
@@ -264,6 +275,8 @@ function App() {
                 projectPaths={projectPaths}
                 onBack={handleNavigateToDashboard}
                 onUseTemplate={handleUseTemplate}
+                initialSelectedTemplate={initialSelectedTemplate}
+                onInitialTemplateConsumed={() => setInitialSelectedTemplate(null)}
               />
             ) : currentView === 'processes-overview' ? (
               <ProcessesOverview
@@ -310,6 +323,7 @@ function App() {
                   ? async () => { await migrateSession(selectedProcessPath, selectedProcess.metadata.projectPaths?.[0] || selectedProcess.metadata.projectPath || projectPaths[0] || '', { permissionMode: settingsState.settings.agent.permissionMode }) }
                   : undefined
                 }
+                onNavigateToTemplate={handleNavigateToTemplate}
               />
             ) : (
               <Dashboard

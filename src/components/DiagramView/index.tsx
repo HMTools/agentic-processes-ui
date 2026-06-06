@@ -7,6 +7,7 @@ import { LazyPromptButton } from '../LazyPromptButton'
 import { LazyPromptModal } from '../LazyPromptModal'
 import { AgentSessionPanel } from '../AgentSessionPanel'
 import { ConfirmationModal } from '../ConfirmationModal'
+import { ProcessStepDetailModal } from './ProcessStepDetailModal'
 import { useToast } from '../Toast'
 import { getStatusColor, formatTimestamp } from '../../services/processService'
 import { useAgentSessions } from '../../hooks/useAgentSessions'
@@ -23,6 +24,7 @@ interface DiagramViewProps {
   navigatedFromPath: string | null
   externalSession?: ExternalSession | null
   onMigrateSession?: () => Promise<void>
+  onNavigateToTemplate?: (templateName: string, templateCategory: string) => void
 }
 
 // Check if we're running in Electron
@@ -35,8 +37,8 @@ const AGENT_PANEL_MIN_HEIGHT = 150
 const AGENT_PANEL_MAX_HEIGHT = 600
 const AGENT_PANEL_DEFAULT_HEIGHT = 300
 
-export function DiagramView({ process, processPath, onBack, onNavigateToProcess, onOpenInOverview, getProcess, navigatedFromPath, externalSession, onMigrateSession }: DiagramViewProps) {
-  const [selectedStep, setSelectedStep] = useState<ProcessStep | null>(null)
+export function DiagramView({ process, processPath, onBack, onNavigateToProcess, onOpenInOverview, getProcess, navigatedFromPath, externalSession, onMigrateSession, onNavigateToTemplate }: DiagramViewProps) {
+  const [modalStepIndex, setModalStepIndex] = useState<number | null>(null)
   const [memory, setMemory] = useState<ProcessMemory | null>(null)
   const [log, setLog] = useState<ProcessLog | null>(null)
   const [qaSession, setQASession] = useState<QASessionFile | null>(null)
@@ -231,6 +233,11 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
     return null
   }, [navigatedFromPath, process.subProcessState, resolveProcessPath])
 
+  const handleStepClick = useCallback((step: ProcessStep) => {
+    const index = process.steps.findIndex(s => s.id === step.id)
+    if (index !== -1) setModalStepIndex(index)
+  }, [process.steps])
+
   const handleSubProcessClick = useCallback((subProcess: ChildProcessRef, ctrlKey: boolean) => {
     const absolutePath = resolveProcessPath(subProcess.processPath)
     const targetProcess = getProcess(absolutePath)
@@ -343,7 +350,21 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
               {process.name}
             </h1>
             <p className="text-xs text-text-muted">
-              {process.metadata.template} • Created {formatTimestamp(process.metadata.created)}
+              {onNavigateToTemplate && process.metadata.template && process.metadata.templateCategory ? (
+                <button
+                  onClick={() => onNavigateToTemplate(process.metadata.template, process.metadata.templateCategory!)}
+                  className="text-accent hover:underline cursor-pointer inline-flex items-center gap-1"
+                  title="View source template"
+                >
+                  {process.metadata.template}
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </button>
+              ) : (
+                <span>{process.metadata.template}</span>
+              )}
+              {' '}• Created {formatTimestamp(process.metadata.created)}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -433,9 +454,9 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
           <div className="flex-1 flex overflow-hidden min-h-0 relative">
             {/* Diagram */}
             <div className="flex-1">
-              <ProcessDiagram 
-                process={process} 
-                onStepClick={setSelectedStep}
+              <ProcessDiagram
+                process={process}
+                onStepClick={handleStepClick}
                 onSubProcessClick={handleSubProcessClick}
                 onParentClick={handleParentClick}
                 focusNodeId={focusNodeId}
@@ -443,14 +464,16 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
               />
             </div>
 
-            {/* Step details sidebar (overlays on diagram area) */}
-            {selectedStep && (
-              <div className="absolute right-0 top-0 bottom-0 w-80 border-l border-border bg-surface overflow-y-auto shadow-lg z-10">
-                <StepDetails 
-                  step={selectedStep} 
-                  onClose={() => setSelectedStep(null)}
-                />
-              </div>
+            {/* Process step detail modal */}
+            {modalStepIndex !== null && (
+              <ProcessStepDetailModal
+                steps={process.steps}
+                currentIndex={modalStepIndex}
+                onNavigate={setModalStepIndex}
+                onClose={() => setModalStepIndex(null)}
+                memory={memory}
+                log={log}
+              />
             )}
           </div>
 
@@ -523,73 +546,6 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
         onConfirm={handleDelete}
         onCancel={() => setShowDeleteConfirm(false)}
       />
-    </div>
-  )
-}
-
-function StepDetails({ step, onClose }: { step: ProcessStep; onClose: () => void }) {
-  return (
-    <div className="p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-mono text-sm font-semibold text-text-primary">
-          Step {step.number}
-        </h3>
-        <button
-          onClick={onClose}
-          className="p-1 rounded hover:bg-surface-elevated transition-colors"
-        >
-          <svg className="w-4 h-4 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-
-      <div className="space-y-4">
-        <div>
-          <label className="text-xs text-text-muted uppercase tracking-wider">Name</label>
-          <p className="text-sm text-text-primary mt-1">{step.name}</p>
-        </div>
-
-        <div>
-          <label className="text-xs text-text-muted uppercase tracking-wider">Status</label>
-          <p className={`text-sm mt-1 ${getStatusColor(step.status)}`}>
-            {step.status.replace('_', ' ')}
-          </p>
-        </div>
-
-        {step.stepRef && (
-          <div>
-            <label className="text-xs text-text-muted uppercase tracking-wider">Step Reference</label>
-            <p className="text-xs font-mono text-text-secondary mt-1 break-all">{step.stepRef}</p>
-          </div>
-        )}
-
-        {step.approvalRequired && (
-          <div className="flex items-center gap-2 p-2 rounded bg-status-paused/10 border border-status-paused/30">
-            <svg className="w-4 h-4 text-status-paused" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <span className="text-xs text-status-paused">
-              {step.approved ? 'Approved' : 'Requires Approval'}
-            </span>
-          </div>
-        )}
-
-        {step.startedAt && (
-          <div>
-            <label className="text-xs text-text-muted uppercase tracking-wider">Started</label>
-            <p className="text-sm text-text-secondary mt-1">{formatTimestamp(step.startedAt)}</p>
-          </div>
-        )}
-
-        {step.completedAt && (
-          <div>
-            <label className="text-xs text-text-muted uppercase tracking-wider">Completed</label>
-            <p className="text-sm text-text-secondary mt-1">{formatTimestamp(step.completedAt)}</p>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

@@ -574,7 +574,7 @@ export interface TemplateStep {
   number: number
   name: string
   stepRef: string
-  output: string
+  output?: string
   conditional?: string
   approvalRequired?: boolean
   context?: Record<string, unknown>
