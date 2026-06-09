@@ -40,7 +40,7 @@ export function findStepNumber(process: ProcessInstance, stepId: StepId): number
 
 // Helper function to check if a step is active
 export function isActiveStep(step: ProcessStep, process: ProcessInstance): boolean {
-  return step.id === process.currentState.activeStepId
+  return step.id === process.currentState.activeStep.id
 }
 
 // Helper function to find step by ID
@@ -53,23 +53,8 @@ export function toProcessSummary(process: ProcessInstance, path: string): Proces
   const completedSteps = process.steps.filter(s => s.status === 'completed').length
   const totalSteps = process.steps.length
   
-  // Handle both new format (activeStepId) and old format (activeStepNumber)
-  const currentState = process.currentState as any // Allow access to both old and new fields
-  let currentStepNumber: number
-  
-  if (currentState.activeStepId) {
-    // New format: find step number from activeStepId
-    currentStepNumber = findStepNumber(process, currentState.activeStepId)
-  } else if (typeof currentState.activeStepNumber === 'number') {
-    // Old format: use activeStepNumber directly
-    currentStepNumber = currentState.activeStepNumber
-  } else {
-    // Fallback: use completed steps count
-    currentStepNumber = completedSteps
-  }
-  
-  // Handle both new format (actionSummary) and old format (currentAction)
-  const currentAction = currentState.actionSummary || currentState.currentAction || 'Unknown action'
+  const currentStepNumber = findStepNumber(process, process.currentState.activeStep.id)
+  const currentAction = process.currentState.activeStep.actionSummary
   
   return {
     id: process.id,

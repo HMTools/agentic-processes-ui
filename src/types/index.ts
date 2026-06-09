@@ -47,11 +47,22 @@ export interface ProcessMetadata {
   sessionId?: string
 }
 
-export interface ProcessCurrentState {
-  activeStepId: StepId
-  activeStepName: string
+export interface ActiveStepSubstep {
+  number: number
+  name: string
+}
+
+export interface ActiveStep {
+  id: StepId
+  name: string
   actionSummary: string
   actionDetails?: string
+  totalSubsteps: number
+  currentSubstep?: ActiveStepSubstep
+}
+
+export interface ProcessCurrentState {
+  activeStep: ActiveStep
 }
 
 /**
@@ -329,51 +340,41 @@ export interface ChannelReply {
 }
 
 // ============================================================================
-// Memory file types (memory.json)
+// Memory file types (topic-based memory/ directory)
 // ============================================================================
 
-export interface MemoryStepEntry {
-  name: string
-  status?: StepStatus
-  startedAt?: ISOTimestamp
-  updatedAt?: ISOTimestamp
+export interface MemoryTopicEntry {
+  stepName: string
   informationProduced: Record<string, unknown>
   decisionsMade: string[]
   filesModifiedCreated: string[]
+  updatedAt?: ISOTimestamp
   notes?: string
 }
 
-export interface MemoryFile {
-  type: 'memory-file'
-  metadata: {
-    process: string
-    template: string
-    created: ISOTimestamp
-    lastUpdated: ISOTimestamp
-    currentStep: StepId
-  }
-  subProcessState: {
-    parentProcessPath: ProcessPath | null
-    childSubProcesses: ChildProcessRef[]
-    syncPoints: StepId[]
-  }
-  steps: Record<StepId, MemoryStepEntry>
-  crossReferences: {
-    keyDecisions: string[]
-    filesModified?: string[]
-    filesCreated?: string[]
-    schemaFiles?: string[]
-    targetFiles?: string[]
-    custom?: Record<string, unknown>
-  }
-  searchHelpers: {
-    byCategory: Record<string, string[]>
-    byFileType?: Record<string, string[]>
-  }
+export interface MemoryTopicFile {
+  type: 'memory-topic-file'
+  topic: string
+  lastUpdated: ISOTimestamp
+  entries: Record<StepId, MemoryTopicEntry>
 }
 
-/** Alias for backward compatibility */
-export type ProcessMemory = MemoryFile
+export interface MemoryCrossReferences {
+  type: 'memory-cross-references'
+  keyDecisions: string[]
+  filesModified?: string[]
+  filesCreated?: string[]
+  custom?: Record<string, unknown>
+}
+
+/** Aggregated memory view for UI rendering */
+export interface ProcessMemoryView {
+  topics: Record<string, MemoryTopicFile>
+  crossReferences: MemoryCrossReferences
+}
+
+/** Alias: ProcessMemory now refers to the aggregated view */
+export type ProcessMemory = ProcessMemoryView
 
 // ============================================================================
 // Log file types (log.json)

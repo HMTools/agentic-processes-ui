@@ -141,8 +141,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopAllWatching: () => ipcRenderer.invoke('stop-all-watching'),
   
   // File reading
-  readProcessFile: (processPath: string, fileName: string) => 
+  readProcessFile: (processPath: string, fileName: string) =>
     ipcRenderer.invoke('read-process-file', processPath, fileName),
+  readMemoryDirectory: (processPath: string) =>
+    ipcRenderer.invoke('read-memory-directory', processPath),
   
   // Process files listing and reading
   listProcessFiles: (processPath: string) =>
@@ -430,6 +432,7 @@ declare global {
       stopWatching: (projectPath?: string) => Promise<boolean>
       stopAllWatching: () => Promise<boolean>
       readProcessFile: (processPath: string, fileName: string) => Promise<unknown | null>
+      readMemoryDirectory: (processPath: string) => Promise<Record<string, unknown> | null>
       listProcessFiles: (processPath: string) => Promise<ProcessFile[]>
       readFileContent: (filePath: string) => Promise<string | null>
       watchFile: (filePath: string) => Promise<boolean>

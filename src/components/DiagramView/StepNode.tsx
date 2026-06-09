@@ -6,6 +6,8 @@ interface StepNodeData {
   step: ProcessStep
   isActive: boolean
   processStatus: ProcessStatus
+  currentSubstep?: { number: number; name: string }
+  totalSubsteps?: number
 }
 
 interface StepNodeProps {
@@ -94,14 +96,19 @@ export const StepNode = memo(function StepNode({ data, selected }: StepNodeProps
               #{step.number}
             </span>
             {step.approvalRequired && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-status-paused/20 text-status-paused">
-                Approval
+              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${step.approved ? 'bg-status-completed/20 text-status-completed' : 'bg-status-paused/20 text-status-paused'}`}>
+                {step.approved ? 'Approved' : 'Approval'}
               </span>
             )}
           </div>
           <h4 className="text-sm font-medium text-text-primary leading-tight">
             {step.name}
           </h4>
+          {isActive && data.currentSubstep && data.totalSubsteps && (
+            <div className="text-[10px] text-text-muted mt-0.5 truncate">
+              Substep {data.currentSubstep.number}/{data.totalSubsteps}: {data.currentSubstep.name}
+            </div>
+          )}
           {step.stepRef && (
             <p className="text-[10px] text-text-muted mt-1 font-mono truncate">
               {step.stepRef.startsWith('@') ? step.stepRef.replace('@step:', '').replace('@framework-step:', '').replace('@user-step:', '') : step.stepRef}

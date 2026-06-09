@@ -66,7 +66,7 @@ export async function getInteractionOptions(processPath: string): Promise<Intera
  * Get the active step of a process
  */
 export function getActiveStep(process: ProcessInstance) {
-  return process.steps.find(s => s.id === process.currentState.activeStepId)
+  return process.steps.find(s => s.id === process.currentState.activeStep.id)
 }
 
 /**

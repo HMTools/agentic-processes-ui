@@ -37,7 +37,7 @@ async function createFileWatcher(_projectPath, callback, onError) {
     ignoreInitial: false,
     usePolling: true,
     interval: 1e3,
-    depth: 3,
+    depth: 4,
     awaitWriteFinish: {
       stabilityThreshold: 300,
       pollInterval: 100
@@ -50,13 +50,19 @@ async function createFileWatcher(_projectPath, callback, onError) {
   const getFileType = (path) => {
     const normalized = path.replace(/\\/g, "/");
     if (normalized.endsWith("/process.json")) return "process";
-    if (normalized.endsWith("/memory.json")) return "memory";
     if (normalized.endsWith("/log.json")) return "log";
     if (normalized.endsWith("/pending-interaction.json")) return "pending-interaction";
     if (normalized.endsWith("/qa-session.json")) return "qa-session";
+    if (/\/memory\/[^/]+\.json$/.test(normalized)) return "memory";
     return null;
   };
   const getProcessPath = (filePath) => {
+    const normalized = filePath.replace(/\\/g, "/");
+    if (/\/memory\/[^/]+\.json$/.test(normalized)) {
+      const memoryDir = dirname(filePath);
+      const processDir = dirname(memoryDir);
+      return join(processDir, "process.json");
+    }
     const dir = dirname(filePath);
     return join(dir, "process.json");
   };
@@ -1169,6 +1175,33 @@ ipcMain.handle("read-process-file", async (_event, processPath, fileName) => {
     return JSON.parse(content);
   } catch (error) {
     console.error(`Error reading ${fileName}:`, error);
+    return null;
+  }
+});
+ipcMain.handle("read-memory-directory", async (_event, processPath) => {
+  try {
+    const processDir = dirname(processPath);
+    const memoryDir = join(processDir, "memory");
+    if (!existsSync(memoryDir)) {
+      console.log(`Memory directory not found: ${memoryDir}`);
+      return null;
+    }
+    const entries = await readdir(memoryDir);
+    const topics = {};
+    for (const entry of entries) {
+      if (!entry.endsWith(".json")) continue;
+      const filePath = join(memoryDir, entry);
+      try {
+        const content = await readFile(filePath, "utf-8");
+        const topicName = entry.replace(/\.json$/, "");
+        topics[topicName] = JSON.parse(content);
+      } catch (err) {
+        console.error(`Error reading memory topic file: ${filePath}`, err);
+      }
+    }
+    return topics;
+  } catch (error) {
+    console.error("Error reading memory directory:", error);
     return null;
   }
 });

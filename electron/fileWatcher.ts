@@ -55,7 +55,7 @@ export async function createFileWatcher(
     ignoreInitial: false,
     usePolling: true,
     interval: 1000,
-    depth: 3,
+    depth: 4,
     awaitWriteFinish: {
       stabilityThreshold: 300,
       pollInterval: 100
@@ -72,15 +72,23 @@ export async function createFileWatcher(
   const getFileType = (path: string): FileType | null => {
     const normalized = path.replace(/\\/g, '/')
     if (normalized.endsWith('/process.json')) return 'process'
-    if (normalized.endsWith('/memory.json')) return 'memory'
     if (normalized.endsWith('/log.json')) return 'log'
     if (normalized.endsWith('/pending-interaction.json')) return 'pending-interaction'
     if (normalized.endsWith('/qa-session.json')) return 'qa-session'
+    // Detect files inside memory/ subdirectory
+    if (/\/memory\/[^/]+\.json$/.test(normalized)) return 'memory'
     return null
   }
 
   const getProcessPath = (filePath: string): string => {
-    // Get the process.json path from any file in the same directory
+    const normalized = filePath.replace(/\\/g, '/')
+    // For files inside memory/ subdirectory, go up two levels
+    if (/\/memory\/[^/]+\.json$/.test(normalized)) {
+      const memoryDir = dirname(filePath)
+      const processDir = dirname(memoryDir)
+      return join(processDir, 'process.json')
+    }
+    // For all other files, process.json is in the same directory
     const dir = dirname(filePath)
     return join(dir, 'process.json')
   }

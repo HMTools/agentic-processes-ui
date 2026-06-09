@@ -89,11 +89,22 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
   const loadProcessFiles = useCallback(async () => {
     if (!isElectron() || !processPath) return
 
-    // Load memory.json
+    // Load memory from memory/ directory (topic files)
     setMemoryLoading(true)
     try {
-      const memoryData = await window.electronAPI.readProcessFile(processPath, 'memory.json')
-      setMemory(memoryData as ProcessMemory | null)
+      const memoryTopics = await window.electronAPI.readMemoryDirectory(processPath)
+      if (memoryTopics) {
+        const crossRefs = (memoryTopics['_cross-references'] || { type: 'memory-cross-references', keyDecisions: [] }) as ProcessMemory['crossReferences']
+        const topics: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(memoryTopics)) {
+          if (key !== '_cross-references') {
+            topics[key] = value
+          }
+        }
+        setMemory({ topics, crossReferences: crossRefs } as ProcessMemory)
+      } else {
+        setMemory(null)
+      }
     } catch (error) {
       console.error('Error loading memory:', error)
       setMemory(null)
@@ -137,8 +148,17 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
       if (updatedPath === processPath) {
         if (event === 'removed') {
           setMemory(null)
-        } else {
-          setMemory(memoryData as ProcessMemory | null)
+        } else if (memoryData && typeof memoryData === 'object') {
+          // memoryData is now a Record<topicName, topicFileContent> from the backend
+          const topicsMap = memoryData as Record<string, unknown>
+          const crossRefs = (topicsMap['_cross-references'] || { type: 'memory-cross-references', keyDecisions: [] }) as ProcessMemory['crossReferences']
+          const topics: Record<string, unknown> = {}
+          for (const [key, value] of Object.entries(topicsMap)) {
+            if (key !== '_cross-references') {
+              topics[key] = value
+            }
+          }
+          setMemory({ topics, crossReferences: crossRefs } as ProcessMemory)
         }
       }
     })
@@ -436,11 +456,11 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
         <div className="mt-3 p-3 rounded-lg bg-surface border border-border">
           <div className="text-xs text-text-muted mb-1">Current Action</div>
           <div className="text-sm text-text-primary">
-            {(process.currentState as any).actionSummary || (process.currentState as any).currentAction || 'Unknown action'}
+            {process.currentState.activeStep.actionSummary}
           </div>
-          {((process.currentState as any).actionDetails || (process.currentState as any).details) && (
+          {process.currentState.activeStep.actionDetails && (
             <div className="text-xs text-text-secondary mt-1">
-              {(process.currentState as any).actionDetails || (process.currentState as any).details}
+              {process.currentState.activeStep.actionDetails}
             </div>
           )}
         </div>

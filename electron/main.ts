@@ -173,11 +173,28 @@ ipcMain.handle('start-watching', async (_event, projectPath: string) => {
             })
             break
           case 'memory':
-            broadcastToRenderers('memory-update', {
-              event,
-              processPath: data.processPath,
-              memory: data.content
-            })
+            // On any memory topic file change, re-read all topic files and emit combined state
+            try {
+              const memDir = join(dirname(data.processPath), 'memory')
+              if (existsSync(memDir)) {
+                const memEntries = await readdir(memDir)
+                const topics: Record<string, unknown> = {}
+                for (const me of memEntries) {
+                  if (!me.endsWith('.json')) continue
+                  try {
+                    const mc = await readFile(join(memDir, me), 'utf-8')
+                    topics[me.replace(/\.json$/, '')] = JSON.parse(mc)
+                  } catch { /* skip unreadable files */ }
+                }
+                broadcastToRenderers('memory-update', {
+                  event,
+                  processPath: data.processPath,
+                  memory: topics
+                })
+              }
+            } catch (memErr) {
+              console.error('Error aggregating memory topics:', memErr)
+            }
             break
           case 'log':
             broadcastToRenderers('log-update', {
@@ -239,6 +256,39 @@ ipcMain.handle('read-process-file', async (_event, processPath: string, fileName
     return JSON.parse(content)
   } catch (error) {
     console.error(`Error reading ${fileName}:`, error)
+    return null
+  }
+})
+
+// Read all memory topic files from the memory/ directory
+ipcMain.handle('read-memory-directory', async (_event, processPath: string) => {
+  try {
+    const processDir = dirname(processPath)
+    const memoryDir = join(processDir, 'memory')
+
+    if (!existsSync(memoryDir)) {
+      console.log(`Memory directory not found: ${memoryDir}`)
+      return null
+    }
+
+    const entries = await readdir(memoryDir)
+    const topics: Record<string, unknown> = {}
+
+    for (const entry of entries) {
+      if (!entry.endsWith('.json')) continue
+      const filePath = join(memoryDir, entry)
+      try {
+        const content = await readFile(filePath, 'utf-8')
+        const topicName = entry.replace(/\.json$/, '')
+        topics[topicName] = JSON.parse(content)
+      } catch (err) {
+        console.error(`Error reading memory topic file: ${filePath}`, err)
+      }
+    }
+
+    return topics
+  } catch (error) {
+    console.error('Error reading memory directory:', error)
     return null
   }
 })

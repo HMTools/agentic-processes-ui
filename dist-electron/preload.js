@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   stopAllWatching: () => ipcRenderer.invoke("stop-all-watching"),
   // File reading
   readProcessFile: (processPath, fileName) => ipcRenderer.invoke("read-process-file", processPath, fileName),
+  readMemoryDirectory: (processPath) => ipcRenderer.invoke("read-memory-directory", processPath),
   // Process files listing and reading
   listProcessFiles: (processPath) => ipcRenderer.invoke("list-process-files", processPath),
   readFileContent: (filePath) => ipcRenderer.invoke("read-file-content", filePath),

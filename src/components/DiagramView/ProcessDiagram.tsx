@@ -115,24 +115,24 @@ function generateDiagram(
   }
 
   process.steps.forEach((step, index) => {
-    // Handle both new format (activeStepId) and old format (activeStepNumber)
-    const currentState = process.currentState as any
-    const isActive = currentState.activeStepId 
-      ? step.id === currentState.activeStepId
-      : step.number === currentState.activeStepNumber
+    const isActive = step.id === process.currentState.activeStep.id
     const stepY = startY + index * (nodeHeight + verticalGap)
-    
+
     nodes.push({
       id: `step-${step.number}`,
       type: 'step',
-      position: { 
+      position: {
         x: 100,
         y: stepY
       },
       data: {
         step,
         isActive,
-        processStatus: process.status
+        processStatus: process.status,
+        ...(isActive && {
+          currentSubstep: process.currentState.activeStep.currentSubstep,
+          totalSubsteps: process.currentState.activeStep.totalSubsteps,
+        }),
       }
     })
 
@@ -140,10 +140,7 @@ function generateDiagram(
     if (index < process.steps.length - 1) {
       const isCompleted = step.status === 'completed'
       const nextStep = process.steps[index + 1]
-      // Handle both new format (activeStepId) and old format (activeStepNumber)
-      const isNextActive = currentState.activeStepId 
-        ? nextStep.id === currentState.activeStepId
-        : nextStep.number === currentState.activeStepNumber
+      const isNextActive = nextStep.id === process.currentState.activeStep.id
       
       edges.push({
         id: `edge-${step.number}-${nextStep.number}`,

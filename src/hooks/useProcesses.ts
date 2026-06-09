@@ -183,8 +183,8 @@ export function useProcesses(options: UseProcessesOptions = {}) {
             }
             
             // Check currentState structure
-            if (!process.currentState.activeStepId && !process.currentState.activeStepNumber) {
-              console.warn(`[useProcesses] Process ${data.path} missing activeStepId, may have old format`)
+            if (!process.currentState.activeStep?.id) {
+              console.warn(`[useProcesses] Process ${data.path} missing activeStep.id`)
             }
             
             setProcesses(prev => ({

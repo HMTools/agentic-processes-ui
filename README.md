@@ -80,9 +80,17 @@ interface ProcessInstance {
   status: ProcessStatus         // running | completed | failed | paused
   parameters: Record<string, string>
   currentState: {
-    activeStepNumber: number
-    activeStepName: string
-    currentAction: string
+    activeStep: {
+      id: StepId
+      name: string
+      actionSummary: string
+      actionDetails?: string
+      totalSubsteps: number
+      currentSubstep?: {
+        number: number
+        name: string
+      }
+    }
   }
   steps: ProcessStep[]          // All steps with status
 }

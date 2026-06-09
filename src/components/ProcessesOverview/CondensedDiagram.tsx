@@ -141,10 +141,7 @@ export function CondensedDiagram({ process, processPath, getProcess, onNavigateT
       <div className="flex-shrink-0 px-3 py-2 bg-surface border-b border-border">
         <div className="flex items-center gap-1.5">
           {process.steps.map((step) => {
-            const currentState = process.currentState as any
-            const isActive = currentState.activeStepId
-              ? step.id === currentState.activeStepId
-              : step.number === currentState.activeStepNumber
+            const isActive = step.id === process.currentState.activeStep.id
 
             return (
               <div
@@ -172,7 +169,12 @@ export function CondensedDiagram({ process, processPath, getProcess, onNavigateT
             {completedSteps}/{process.steps.length} steps
           </span>
           <span className="text-[10px] text-text-muted truncate ml-2">
-            {(process.currentState as any).actionSummary || (process.currentState as any).currentAction || ''}
+            {process.currentState.activeStep.actionSummary}
+            {process.currentState.activeStep.currentSubstep && (
+              <span className="text-[9px] text-text-muted ml-1">
+                ({process.currentState.activeStep.currentSubstep.number}/{process.currentState.activeStep.totalSubsteps})
+              </span>
+            )}
           </span>
         </div>
       </div>

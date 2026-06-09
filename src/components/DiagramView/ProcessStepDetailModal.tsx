@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import type { ProcessStep, ProcessMemory, ProcessLog, MemoryStepEntry, LogStepEntry } from '../../types'
+import type { ProcessStep, ProcessMemory, ProcessLog, MemoryTopicEntry, LogStepEntry } from '../../types'
 import { getStatusColor, formatTimestamp } from '../../services/processService'
 import { parseStepDefinition, toDisplayText } from '../Templates/TemplateDetail'
 import { OutputSection, SubstepsSection, FlowSection, GuidanceSection, MemoryFileUsageSection, ModalSection } from '../Templates/StepModalSections'
@@ -23,7 +23,17 @@ export function ProcessStepDetailModal({ steps, currentIndex, onNavigate, onClos
   const hasPrev = currentIndex > 0
   const hasNext = currentIndex < steps.length - 1
 
-  const memoryEntry = memory?.steps?.[step.id] as MemoryStepEntry | undefined
+  // Aggregate memory contributions from all topic files for this step
+  const memoryEntries: { topic: string; entry: MemoryTopicEntry }[] = []
+  if (memory?.topics) {
+    for (const [topicName, topicFile] of Object.entries(memory.topics)) {
+      const tf = topicFile as any
+      if (tf?.entries?.[step.id]) {
+        memoryEntries.push({ topic: topicName, entry: tf.entries[step.id] as MemoryTopicEntry })
+      }
+    }
+  }
+  const memoryEntry = memoryEntries.length > 0 ? memoryEntries[0].entry : undefined
   const logEntry = log?.steps?.[step.id] as LogStepEntry | undefined
 
   const hasDefinitionContent = parsed.output?.description || (parsed.substeps && parsed.substeps.length > 0) ||

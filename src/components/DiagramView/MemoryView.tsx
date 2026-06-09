@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import type { ProcessMemory, MemoryStepEntry, ProcessFile } from '../../types'
+import type { ProcessMemory, MemoryTopicFile, MemoryTopicEntry, ProcessFile } from '../../types'
 import { FileContentModal } from '../FileContentModal'
 
 interface MemoryViewProps {
@@ -113,45 +113,15 @@ export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
     )
   }
 
-  // Handle both old and new memory formats - steps might be undefined or null
-  const steps = (memory as any).steps || {}
-  const stepEntries = Object.entries(steps).sort((a, b) => {
-    const numA = parseInt(a[0].replace(/\D/g, '')) || 0
-    const numB = parseInt(b[0].replace(/\D/g, '')) || 0
-    return numB - numA
-  })
-
-  // Handle old format that had parameters at top level
-  const parameters = (memory as any).parameters || {}
+  const topics = memory.topics || {}
+  const crossRefs = memory.crossReferences
+  const topicEntries = Object.entries(topics).sort((a, b) => a[0].localeCompare(b[0]))
 
   return (
     <div className="h-full overflow-auto p-4">
       <div className="space-y-6">
-        {/* Parameters Section (old format compatibility) */}
-        {Object.keys(parameters).length > 0 && (
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-              </svg>
-              Parameters
-            </h3>
-            <div className="bg-surface rounded-lg border border-border p-3">
-              <div className="space-y-2">
-                {Object.entries(parameters).map(([key, value]) => (
-                  <div key={key} className="flex gap-2">
-                    <span className="text-xs font-mono text-accent shrink-0">{key}:</span>
-                    <span className="text-xs text-text-secondary break-all">{String(value)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
         {/* Cross References - Key Decisions */}
-        {memory.crossReferences?.keyDecisions?.length > 0 && (
+        {crossRefs?.keyDecisions?.length > 0 && (
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -162,27 +132,14 @@ export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
             </h3>
             <div className="bg-surface rounded-lg border border-border p-3">
               <ul className="space-y-1.5">
-                {memory.crossReferences.keyDecisions.map((decision, i) => {
-                  // Handle both string and object formats ({decision, step, rationale})
+                {crossRefs.keyDecisions.map((decision, i) => {
                   const decisionText = typeof decision === 'string'
                     ? decision
                     : (decision as any)?.decision ?? JSON.stringify(decision)
-                  const step = typeof decision === 'object' && decision !== null
-                    ? (decision as any).step
-                    : undefined
-                  const rationale = typeof decision === 'object' && decision !== null
-                    ? (decision as any).rationale
-                    : undefined
                   return (
                     <li key={i} className="flex gap-2 text-xs">
-                      <span className="text-status-completed shrink-0">•</span>
-                      <span className="text-text-secondary">
-                        {step && <span className="text-accent font-mono mr-1">[{step}]</span>}
-                        {decisionText}
-                        {rationale && (
-                          <span className="text-text-muted ml-1">— {rationale}</span>
-                        )}
-                      </span>
+                      <span className="text-status-completed shrink-0">-</span>
+                      <span className="text-text-secondary">{decisionText}</span>
                     </li>
                   )
                 })}
@@ -192,7 +149,7 @@ export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
         )}
 
         {/* Files Modified */}
-        {memory.crossReferences?.filesModified?.length > 0 && (
+        {crossRefs?.filesModified && crossRefs.filesModified.length > 0 && (
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -203,7 +160,7 @@ export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
             </h3>
             <div className="bg-surface rounded-lg border border-border p-3">
               <ul className="space-y-1">
-                {memory.crossReferences.filesModified.map((file, i) => {
+                {crossRefs.filesModified.map((file, i) => {
                   const { filePath, description } = parseFileEntry(file)
                   return (
                     <li key={i}>
@@ -225,52 +182,19 @@ export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
           </section>
         )}
 
-        {/* Sub-Process State */}
-        {memory.subProcessState?.childSubProcesses?.length > 0 && (
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-              </svg>
-              Child Sub-Processes
-            </h3>
-            <div className="space-y-2">
-              {memory.subProcessState.childSubProcesses.map((child, i) => (
-                <div key={i} className="bg-surface rounded-lg border border-border p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-mono text-text-primary truncate">{child.name}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      child.status === 'completed' ? 'bg-status-completed/20 text-status-completed' :
-                      child.status === 'paused' ? 'bg-status-paused/20 text-status-paused' :
-                      child.status === 'running' ? 'bg-status-active/20 text-status-active' :
-                      'bg-status-pending/20 text-status-pending'
-                    }`}>
-                      {child.status}
-                    </span>
-                  </div>
-                  <div className="text-xs text-text-muted">
-                    <span className="text-text-secondary font-mono">{child.processPath}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Steps Memory */}
-        {stepEntries.length > 0 && (
+        {/* Topic Files */}
+        {topicEntries.length > 0 && (
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
-              Step Details
+              Memory Topics
             </h3>
             <div className="space-y-3">
-              {stepEntries.map(([stepKey, step]) => (
-                <StepMemoryCard key={stepKey} stepKey={stepKey} step={step} onFileClick={handleFileClick} />
+              {topicEntries.map(([topicName, topicFile]) => (
+                <TopicCard key={topicName} topicName={topicName} topicFile={topicFile as MemoryTopicFile} onFileClick={handleFileClick} />
               ))}
             </div>
           </section>
@@ -288,111 +212,97 @@ export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
   )
 }
 
-function StepMemoryCard({ stepKey, step, onFileClick }: { stepKey: string; step: MemoryStepEntry; onFileClick: (file: string) => void }) {
+function TopicCard({ topicName, topicFile, onFileClick }: { topicName: string; topicFile: MemoryTopicFile; onFileClick: (file: string) => void }) {
+  const [collapsed, setCollapsed] = useState(false)
+  const entries = Object.entries(topicFile.entries || {})
+
   return (
     <div className="bg-surface rounded-lg border border-border overflow-hidden">
-      <div className="px-3 py-2 bg-surface-elevated border-b border-border flex items-center justify-between">
+      <button
+        className="w-full px-3 py-2 bg-surface-elevated border-b border-border flex items-center justify-between cursor-pointer hover:bg-surface transition-colors"
+        onClick={() => setCollapsed(!collapsed)}
+      >
         <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-accent">{stepKey}</span>
-          <span className="text-xs text-text-primary font-medium">{step.name}</span>
+          <svg className={`w-3 h-3 text-text-muted transition-transform ${collapsed ? '' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <span className="text-xs font-mono text-accent">{topicName}.json</span>
+          <span className="text-xs text-text-muted">({entries.length} {entries.length === 1 ? 'entry' : 'entries'})</span>
         </div>
-        {step.status && (
-          <span className={`text-xs px-2 py-0.5 rounded-full ${
-            step.status === 'completed' ? 'bg-status-completed/20 text-status-completed' :
-            step.status === 'in_progress' ? 'bg-status-active/20 text-status-active' :
-            step.status === 'awaiting_approval' ? 'bg-status-paused/20 text-status-paused' :
-            'bg-status-pending/20 text-status-pending'
-          }`}>
-            {step.status.replace('_', ' ')}
-          </span>
+        {topicFile.lastUpdated && (
+          <span className="text-xs text-text-muted">{new Date(topicFile.lastUpdated).toLocaleString()}</span>
         )}
+      </button>
+
+      {!collapsed && (
+        <div className="p-3 space-y-3">
+          {entries.map(([stepId, entry]) => (
+            <TopicEntryCard key={stepId} stepId={stepId} entry={entry as MemoryTopicEntry} onFileClick={onFileClick} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TopicEntryCard({ stepId, entry, onFileClick }: { stepId: string; entry: MemoryTopicEntry; onFileClick: (file: string) => void }) {
+  return (
+    <div className="border border-border/50 rounded p-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-text-primary font-medium">{entry.stepName}</span>
+        <span className="text-xs text-text-muted font-mono">{stepId.slice(0, 8)}...</span>
       </div>
-      
-      <div className="p-3 space-y-3">
-        {/* Decisions Made */}
-        {step.decisionsMade && step.decisionsMade.length > 0 && (
-          <div>
-            <label className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">
-              Decisions Made
-            </label>
-            <ul className="space-y-1">
-              {step.decisionsMade.map((decision, i) => {
-                // Handle both string and object formats ({decision, rationale})
-                const decisionText = typeof decision === 'string'
-                  ? decision
-                  : (decision as any)?.decision ?? JSON.stringify(decision)
-                const rationale = typeof decision === 'object' && decision !== null
-                  ? (decision as any).rationale
-                  : undefined
-                return (
-                  <li key={i} className="flex gap-2 text-xs">
-                    <span className="text-accent shrink-0">→</span>
-                    <span className="text-text-secondary">
-                      {decisionText}
-                      {rationale && (
-                        <span className="text-text-muted ml-1">— {rationale}</span>
-                      )}
-                    </span>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        )}
 
-        {/* Files Modified */}
-        {step.filesModifiedCreated && step.filesModifiedCreated.length > 0 && (
-          <div>
-            <label className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">
-              Files Created/Modified
-            </label>
-            <ul className="space-y-0.5">
-              {step.filesModifiedCreated.map((file, i) => {
-                const { filePath, description } = parseFileEntry(file)
-                return (
-                  <li key={i}>
-                    <button
-                      onClick={() => onFileClick(file)}
-                      className="text-xs font-mono text-accent break-all text-left hover:text-accent-hover hover:underline transition-colors cursor-pointer"
-                      title={`Click to view ${filePath}`}
-                    >
-                      {filePath}
-                    </button>
-                    {description && (
-                      <span className="text-xs text-text-muted ml-1">({description})</span>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        )}
+      {/* Decisions Made */}
+      {entry.decisionsMade && entry.decisionsMade.length > 0 && (
+        <div>
+          <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Decisions</label>
+          <ul className="space-y-0.5">
+            {entry.decisionsMade.map((decision, i) => (
+              <li key={i} className="flex gap-2 text-xs">
+                <span className="text-accent shrink-0">-</span>
+                <span className="text-text-secondary">{typeof decision === 'string' ? decision : JSON.stringify(decision)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-        {/* Notes */}
-        {step.notes && (
-          <div>
-            <label className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">
-              Notes
-            </label>
-            <p className="text-xs text-text-secondary">{step.notes}</p>
-          </div>
-        )}
+      {/* Files Modified */}
+      {entry.filesModifiedCreated && entry.filesModifiedCreated.length > 0 && (
+        <div>
+          <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Files</label>
+          <ul className="space-y-0.5">
+            {entry.filesModifiedCreated.map((file, i) => {
+              const { filePath, description } = parseFileEntry(file)
+              return (
+                <li key={i}>
+                  <button
+                    onClick={() => onFileClick(file)}
+                    className="text-xs font-mono text-accent break-all text-left hover:text-accent-hover hover:underline transition-colors cursor-pointer"
+                  >
+                    {filePath}
+                  </button>
+                  {description && <span className="text-xs text-text-muted ml-1">({description})</span>}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
 
-        {/* Information Produced Preview */}
-        {step.informationProduced && typeof step.informationProduced === 'object' && Object.keys(step.informationProduced).length > 0 && (
-          <div>
-            <label className="text-xs text-text-muted uppercase tracking-wider block mb-1.5">
-              Information Produced
-            </label>
-            <div className="text-xs text-text-muted bg-background rounded p-2 font-mono overflow-x-auto">
-              <pre className="whitespace-pre-wrap break-all">
-                {JSON.stringify(step.informationProduced, null, 2).slice(0, 500)}
-                {JSON.stringify(step.informationProduced, null, 2).length > 500 && '...'}
-              </pre>
-            </div>
+      {/* Information Produced Preview */}
+      {entry.informationProduced && Object.keys(entry.informationProduced).length > 0 && (
+        <div>
+          <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Information</label>
+          <div className="text-xs text-text-muted bg-background rounded p-2 font-mono overflow-x-auto">
+            <pre className="whitespace-pre-wrap break-all">
+              {JSON.stringify(entry.informationProduced, null, 2).slice(0, 500)}
+              {JSON.stringify(entry.informationProduced, null, 2).length > 500 && '...'}
+            </pre>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
