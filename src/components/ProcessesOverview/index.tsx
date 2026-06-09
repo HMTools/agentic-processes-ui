@@ -13,6 +13,7 @@ interface ProcessesOverviewProps {
   onPopOut?: () => void
   initialPaths?: string[] | null
   onInitialPathsConsumed?: () => void
+  hasPendingInteraction?: (path: string) => boolean
 }
 
 interface OpenRequest {
@@ -27,7 +28,8 @@ export function ProcessesOverview({
   onNewProcess,
   onPopOut,
   initialPaths,
-  onInitialPathsConsumed
+  onInitialPathsConsumed,
+  hasPendingInteraction
 }: ProcessesOverviewProps) {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [openRequests, setOpenRequests] = useState<OpenRequest[]>([])
@@ -42,9 +44,9 @@ export function ProcessesOverview({
   const attentionCount = useMemo(() => {
     return processes.filter(p => {
       const full = getProcess(p.path)
-      return needsAttention(p, full)
+      return needsAttention(p, full, hasPendingInteraction?.(p.path))
     }).length
-  }, [processes, getProcess])
+  }, [processes, getProcess, hasPendingInteraction])
 
   useEffect(() => {
     if (!initialPaths || initialPaths.length === 0) return
@@ -132,6 +134,7 @@ export function ProcessesOverview({
         onSelectProcess={handleSelectProcess}
         onContextMenu={handleContextMenu}
         attentionCount={attentionCount}
+        hasPendingInteraction={hasPendingInteraction}
       />
 
       {/* Tile Manager */}
@@ -141,6 +144,7 @@ export function ProcessesOverview({
         openRequests={openRequests}
         onRequestHandled={handleRequestHandled}
         onPopOut={onPopOut}
+        hasPendingInteraction={hasPendingInteraction}
       />
 
       {/* Context Menu */}

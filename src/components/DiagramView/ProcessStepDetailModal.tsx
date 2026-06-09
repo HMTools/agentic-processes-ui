@@ -12,11 +12,13 @@ interface ProcessStepDetailModalProps {
   onClose: () => void
   memory: ProcessMemory | null
   log: ProcessLog | null
+  hasPendingInteraction?: boolean
+  activeStepId?: string
 }
 
 type Tab = 'definition' | 'execution'
 
-export function ProcessStepDetailModal({ steps, currentIndex, onNavigate, onClose, memory, log }: ProcessStepDetailModalProps) {
+export function ProcessStepDetailModal({ steps, currentIndex, onNavigate, onClose, memory, log, hasPendingInteraction, activeStepId }: ProcessStepDetailModalProps) {
   const modalRef = useRef<HTMLDivElement>(null)
   const step = steps[currentIndex]
   const parsed = parseStepDefinition(step.stepDefinition)
@@ -107,8 +109,12 @@ export function ProcessStepDetailModal({ steps, currentIndex, onNavigate, onClos
                 {step.status.replace(/_/g, ' ')}
               </span>
               {step.approvalRequired && (
-                <span className="px-1.5 py-0.5 text-[10px] rounded bg-status-paused/20 text-status-paused font-medium">
-                  {step.approved ? 'Approved' : 'Approval Required'}
+                <span className={`px-1.5 py-0.5 text-[10px] rounded font-medium ${
+                  step.approved ? 'bg-status-completed/20 text-status-completed'
+                    : (hasPendingInteraction && step.id === activeStepId) ? 'bg-status-waiting/20 text-status-waiting'
+                    : 'bg-status-paused/20 text-status-paused'
+                }`}>
+                  {step.approved ? 'Approved' : (hasPendingInteraction && step.id === activeStepId) ? 'Waiting for your input' : 'Approval Required'}
                 </span>
               )}
             </div>

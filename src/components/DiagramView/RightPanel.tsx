@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import type { ProcessMemory, ProcessLog, QASessionFile } from '../../types'
+import type { ProcessMemory, ProcessLog, QASessionFile, FileChange } from '../../types'
 import { MemoryView } from './MemoryView'
 import { LogsView } from './LogsView'
 import { FilesView } from './FilesView'
@@ -15,13 +15,14 @@ interface RightPanelProps {
   logLoading?: boolean
   processPath: string
   onQASessionUpdate: () => void
+  filesChanged: FileChange[]
 }
 
 const MIN_WIDTH = 280
 const MAX_WIDTH = 800
 const DEFAULT_WIDTH = 384
 
-export function RightPanel({ memory, log, qaSession, memoryLoading, logLoading, processPath, onQASessionUpdate }: RightPanelProps) {
+export function RightPanel({ memory, log, qaSession, memoryLoading, logLoading, processPath, onQASessionUpdate, filesChanged }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('memory')
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -192,7 +193,7 @@ export function RightPanel({ memory, log, qaSession, memoryLoading, logLoading, 
             <LogsView log={log} loading={logLoading} />
           )}
           {activeTab === 'files' && (
-            <FilesView processPath={processPath} />
+            <FilesView processPath={processPath} filesChanged={filesChanged} />
           )}
         </div>
       )}

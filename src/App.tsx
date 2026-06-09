@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useProcesses } from './hooks/useProcesses'
 import { useSettingsState, SettingsContext } from './hooks/useSettings'
 import { useTemplates } from './hooks/useTemplates'
 import { useAgentSessions } from './hooks/useAgentSessions'
+import { usePendingInteractions } from './hooks/usePendingInteractions'
 import { Dashboard } from './components/Dashboard'
 import { DiagramView } from './components/DiagramView'
 import { Settings } from './components/Settings'
@@ -62,6 +63,10 @@ function App() {
   const runningSessionCount = allAgentSessions.filter(
     s => s.status === 'running' || s.status === 'starting'
   ).length
+
+  // Track which processes have pending interactions (waiting for user input)
+  const activeProcessPathsMemo = useMemo(() => activeProcesses.map(p => p.path), [activeProcesses])
+  const { hasPendingInteraction } = usePendingInteractions(activeProcessPathsMemo)
 
   // Periodically discover external Claude Code sessions
   // Use refs to avoid re-triggering the interval on every render
@@ -249,6 +254,7 @@ function App() {
           onNavigateToAgentSessions={handleNavigateToAgentSessions}
           onNavigateToProcessesOverview={handleNavigateToProcessesOverview}
           attentionCount={activeProcesses.filter(p => {
+            if (hasPendingInteraction(p.path)) return true
             const full = getProcess(p.path)
             if (!full) return false
             return full.status === 'failed' || full.status === 'paused' ||
@@ -287,6 +293,7 @@ function App() {
                 onPopOut={handlePopOutOverview}
                 initialPaths={overviewInitialPaths}
                 onInitialPathsConsumed={() => setOverviewInitialPaths(null)}
+                hasPendingInteraction={hasPendingInteraction}
               />
             ) : currentView === 'agent-sessions' ? (
               <AgentSessions
@@ -324,6 +331,7 @@ function App() {
                   : undefined
                 }
                 onNavigateToTemplate={handleNavigateToTemplate}
+                hasPendingInteraction={selectedProcessPath ? hasPendingInteraction(selectedProcessPath) : false}
               />
             ) : (
               <Dashboard

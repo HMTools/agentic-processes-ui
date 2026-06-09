@@ -7,6 +7,7 @@ interface ProcessTreeItemProps {
   depth: number
   isSelected: boolean
   needsAttention: boolean
+  hasPendingInteraction?: boolean
   isExpanded: boolean
   hasChildren: boolean
   onSelect: (path: string, ctrlKey: boolean) => void
@@ -20,6 +21,7 @@ export function ProcessTreeItem({
   depth,
   isSelected,
   needsAttention,
+  hasPendingInteraction,
   isExpanded,
   hasChildren,
   onSelect,
@@ -70,7 +72,8 @@ export function ProcessTreeItem({
         className={`
           w-2 h-2 rounded-full flex-shrink-0
           ${needsAttention ? 'animate-pulse' : ''}
-          ${process.status === 'running' ? 'bg-status-active' :
+          ${hasPendingInteraction ? 'bg-status-waiting' :
+            process.status === 'running' ? 'bg-status-active' :
             process.status === 'completed' ? 'bg-status-completed' :
             process.status === 'failed' ? 'bg-status-failed' :
             process.status === 'paused' ? 'bg-status-paused' :

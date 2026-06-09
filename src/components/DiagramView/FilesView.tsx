@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { ProcessFile } from '../../types'
+import type { ProcessFile, FileChange } from '../../types'
 import { FileContentModal } from '../FileContentModal'
 
 interface FilesViewProps {
   processPath: string
   loading?: boolean
+  filesChanged?: FileChange[]
 }
 
 // Check if we're running in Electron
@@ -19,7 +20,7 @@ const FRAMEWORK_FILES = new Set([
   'pending-interaction.json',
 ])
 
-export function FilesView({ processPath, loading }: FilesViewProps) {
+export function FilesView({ processPath, loading, filesChanged }: FilesViewProps) {
   const [files, setFiles] = useState<ProcessFile[]>([])
   const [filesLoading, setFilesLoading] = useState(true)
   const [selectedFile, setSelectedFile] = useState<ProcessFile | null>(null)
@@ -82,6 +83,26 @@ export function FilesView({ processPath, loading }: FilesViewProps) {
   return (
     <>
       <div className="h-full overflow-auto p-4">
+        {/* Step File Activity (tracked by PostToolUse hook) */}
+        {filesChanged && filesChanged.length > 0 && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 px-1 pb-2">
+              <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <span className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+                Step File Activity ({filesChanged.length})
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {filesChanged.map((fc) => (
+                <FileChangeCard key={fc.path} fileChange={fc} />
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="space-y-2">
           {userFiles.length === 0 && frameworkFiles.length > 0 && (
             <p className="px-1 pb-1 text-xs text-text-muted italic">No output files yet</p>
@@ -216,6 +237,60 @@ function FileCard({ file, onClick }: { file: ProcessFile; onClick: () => void })
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
       </svg>
     </button>
+  )
+}
+
+function FileChangeCard({ fileChange }: { fileChange: FileChange }) {
+  const basename = fileChange.path.split(/[/\\]/).pop() || fileChange.path
+
+  const formatTimestamp = (isoString: string): string => {
+    try {
+      const date = new Date(isoString)
+      if (isNaN(date.getTime())) return ''
+      return date.toLocaleString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    } catch {
+      return ''
+    }
+  }
+
+  const operationConfig: Record<string, { label: string; bgColor: string; textColor: string }> = {
+    created: { label: 'Created', bgColor: 'bg-green-500/10', textColor: 'text-green-400' },
+    edited: { label: 'Edited', bgColor: 'bg-blue-500/10', textColor: 'text-blue-400' },
+    deleted: { label: 'Deleted', bgColor: 'bg-red-500/10', textColor: 'text-red-400' },
+  }
+
+  const config = operationConfig[fileChange.operation] || operationConfig.edited
+
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-border text-left"
+      title={fileChange.path}
+    >
+      {/* Operation badge */}
+      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${config.bgColor} ${config.textColor}`}>
+        {config.label}
+      </span>
+
+      {/* File name + path */}
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-mono text-text-primary truncate block">
+          {basename}
+        </span>
+        <span className="text-[11px] text-text-muted truncate block">
+          {fileChange.path}
+        </span>
+      </div>
+
+      {/* Tool + timestamp */}
+      <div className="flex flex-col items-end flex-shrink-0">
+        <span className="text-[10px] text-text-muted">{fileChange.tool}</span>
+        <span className="text-[10px] text-text-muted">{formatTimestamp(fileChange.timestamp)}</span>
+      </div>
+    </div>
   )
 }
 

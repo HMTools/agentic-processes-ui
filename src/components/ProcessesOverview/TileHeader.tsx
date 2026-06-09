@@ -6,11 +6,12 @@ interface TileHeaderProps {
   process: ProcessInstance
   processPath: string
   needsAttention: boolean
+  hasPendingInteraction?: boolean
   onClose: () => void
   onExpand: () => void
 }
 
-export function TileHeader({ process, processPath, needsAttention, onClose, onExpand }: TileHeaderProps) {
+export function TileHeader({ process, processPath, needsAttention, hasPendingInteraction, onClose, onExpand }: TileHeaderProps) {
   const completedSteps = process.steps.filter(s => s.status === 'completed').length
   const progress = Math.round((completedSteps / process.steps.length) * 100)
 
@@ -23,7 +24,8 @@ export function TileHeader({ process, processPath, needsAttention, onClose, onEx
       <span className={`
         w-2 h-2 rounded-full flex-shrink-0
         ${needsAttention ? 'animate-pulse' : ''}
-        ${process.status === 'running' ? 'bg-status-active' :
+        ${hasPendingInteraction ? 'bg-status-waiting' :
+          process.status === 'running' ? 'bg-status-active' :
           process.status === 'completed' ? 'bg-status-completed' :
           process.status === 'failed' ? 'bg-status-failed' :
           process.status === 'paused' ? 'bg-status-paused' :

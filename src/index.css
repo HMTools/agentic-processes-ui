@@ -19,7 +19,8 @@
   --color-status-completed: #10b981;
   --color-status-failed: #ef4444;
   --color-status-paused: #f59e0b;
-  
+  --color-status-waiting: #f472b6;
+
   --color-accent: #22d3ee;
   --color-accent-hover: #06b6d4;
   
@@ -121,6 +122,22 @@ body {
 
 .animate-slide-up {
   animation: slide-up 0.3s ease-out forwards;
+}
+
+/* Urgent pulse for "waiting for user" state */
+@keyframes pulse-urgent {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 20px rgba(244, 114, 182, 0.4);
+  }
+  50% {
+    opacity: 0.85;
+    box-shadow: 0 0 30px rgba(244, 114, 182, 0.7);
+  }
+}
+
+.animate-pulse-urgent {
+  animation: pulse-urgent 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 /* Highlight pulse animation for navigation source */

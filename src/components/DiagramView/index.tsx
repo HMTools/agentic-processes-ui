@@ -25,6 +25,7 @@ interface DiagramViewProps {
   externalSession?: ExternalSession | null
   onMigrateSession?: () => Promise<void>
   onNavigateToTemplate?: (templateName: string, templateCategory: string) => void
+  hasPendingInteraction?: boolean
 }
 
 // Check if we're running in Electron
@@ -37,7 +38,7 @@ const AGENT_PANEL_MIN_HEIGHT = 150
 const AGENT_PANEL_MAX_HEIGHT = 600
 const AGENT_PANEL_DEFAULT_HEIGHT = 300
 
-export function DiagramView({ process, processPath, onBack, onNavigateToProcess, onOpenInOverview, getProcess, navigatedFromPath, externalSession, onMigrateSession, onNavigateToTemplate }: DiagramViewProps) {
+export function DiagramView({ process, processPath, onBack, onNavigateToProcess, onOpenInOverview, getProcess, navigatedFromPath, externalSession, onMigrateSession, onNavigateToTemplate, hasPendingInteraction }: DiagramViewProps) {
   const [modalStepIndex, setModalStepIndex] = useState<number | null>(null)
   const [memory, setMemory] = useState<ProcessMemory | null>(null)
   const [log, setLog] = useState<ProcessLog | null>(null)
@@ -481,6 +482,7 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
                 onParentClick={handleParentClick}
                 focusNodeId={focusNodeId}
                 getSubProcess={getSubProcess}
+                hasPendingInteraction={hasPendingInteraction}
               />
             </div>
 
@@ -493,6 +495,8 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
                 onClose={() => setModalStepIndex(null)}
                 memory={memory}
                 log={log}
+                hasPendingInteraction={hasPendingInteraction}
+                activeStepId={process.currentState.activeStep.id}
               />
             )}
           </div>
@@ -506,6 +510,7 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
             logLoading={logLoading}
             processPath={processPath}
             onQASessionUpdate={handleQASessionUpdate}
+            filesChanged={process.currentState?.activeStep?.filesChanged ?? []}
           />
         </div>
 

@@ -15,11 +15,12 @@ interface CondensedDiagramProps {
   onNavigateToProcess: (path: string) => void
   onTileNavigate?: (path: string, addNew: boolean) => void
   navigatedFromPath?: string | null
+  hasPendingInteraction?: boolean
 }
 
 const isElectron = () => typeof window !== 'undefined' && window.electronAPI !== undefined
 
-export function CondensedDiagram({ process, processPath, getProcess, onNavigateToProcess, onTileNavigate, navigatedFromPath }: CondensedDiagramProps) {
+export function CondensedDiagram({ process, processPath, getProcess, onNavigateToProcess, onTileNavigate, navigatedFromPath, hasPendingInteraction }: CondensedDiagramProps) {
   const [activeTab, setActiveTab] = useState<InfoTab>('memory')
   const [memory, setMemory] = useState<ProcessMemory | null>(null)
   const [log, setLog] = useState<ProcessLog | null>(null)
@@ -152,6 +153,7 @@ export function CondensedDiagram({ process, processPath, getProcess, onNavigateT
                 <div className={`
                   w-full h-1.5 rounded-full transition-colors
                   ${step.status === 'completed' ? 'bg-status-completed' :
+                    (hasPendingInteraction && isActive && step.approvalRequired && !step.approved) ? 'bg-status-waiting' :
                     step.status === 'in_progress' || isActive ? 'bg-status-active' :
                     step.status === 'failed' ? 'bg-status-failed' :
                     step.status === 'awaiting_approval' ? 'bg-status-paused' :
@@ -189,6 +191,7 @@ export function CondensedDiagram({ process, processPath, getProcess, onNavigateT
             onParentClick={handleParentClick}
             getSubProcess={getSubProcess}
             focusNodeId={focusNodeId}
+            hasPendingInteraction={hasPendingInteraction}
           />
         </div>
 

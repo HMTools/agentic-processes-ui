@@ -90,6 +90,8 @@ export function getStatusColor(status: ProcessStatus | StepStatus): string {
     case 'paused':
     case 'awaiting_approval':
       return 'text-status-paused'
+    case 'waiting_for_user':
+      return 'text-status-waiting'
     case 'pending':
     case 'skipped':
     default:
@@ -110,6 +112,8 @@ export function getStatusBgColor(status: ProcessStatus | StepStatus): string {
     case 'paused':
     case 'awaiting_approval':
       return 'bg-status-paused/20 border-status-paused'
+    case 'waiting_for_user':
+      return 'bg-status-waiting/20 border-status-waiting'
     case 'pending':
     case 'skipped':
     default:

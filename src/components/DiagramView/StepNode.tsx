@@ -8,6 +8,7 @@ interface StepNodeData {
   processStatus: ProcessStatus
   currentSubstep?: { number: number; name: string }
   totalSubsteps?: number
+  hasPendingInteraction?: boolean
 }
 
 interface StepNodeProps {
@@ -16,14 +17,18 @@ interface StepNodeProps {
 }
 
 export const StepNode = memo(function StepNode({ data, selected }: StepNodeProps) {
-  const { step, isActive, processStatus } = data
-  
+  const { step, isActive, processStatus, hasPendingInteraction } = data
+  const isWaitingForUser = hasPendingInteraction && isActive && step.approvalRequired && !step.approved
+
   const getNodeStyle = () => {
     if (processStatus === 'failed' && isActive) {
       return 'border-status-failed bg-status-failed/10 shadow-[0_0_20px_rgba(239,68,68,0.3)]'
     }
     if (step.status === 'completed') {
       return 'border-status-completed bg-status-completed/10'
+    }
+    if (isWaitingForUser) {
+      return 'border-status-waiting bg-status-waiting/10 shadow-[0_0_20px_rgba(244,114,182,0.4)] animate-pulse-urgent'
     }
     if (step.status === 'in_progress' || isActive) {
       return 'border-status-active bg-status-active/10 shadow-[0_0_20px_rgba(34,211,238,0.4)] animate-pulse-slow'
@@ -42,6 +47,13 @@ export const StepNode = memo(function StepNode({ data, selected }: StepNodeProps
       return (
         <svg className="w-4 h-4 text-status-completed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      )
+    }
+    if (isWaitingForUser) {
+      return (
+        <svg className="w-4 h-4 text-status-waiting" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
       )
     }
@@ -96,8 +108,12 @@ export const StepNode = memo(function StepNode({ data, selected }: StepNodeProps
               #{step.number}
             </span>
             {step.approvalRequired && (
-              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${step.approved ? 'bg-status-completed/20 text-status-completed' : 'bg-status-paused/20 text-status-paused'}`}>
-                {step.approved ? 'Approved' : 'Approval'}
+              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                step.approved ? 'bg-status-completed/20 text-status-completed'
+                  : isWaitingForUser ? 'bg-status-waiting/20 text-status-waiting'
+                  : 'bg-status-paused/20 text-status-paused'
+              }`}>
+                {step.approved ? 'Approved' : isWaitingForUser ? 'Action Required' : 'Approval'}
               </span>
             )}
           </div>

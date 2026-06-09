@@ -19,6 +19,7 @@ interface TileManagerProps {
   openRequests: { path: string; addNew: boolean }[]
   onRequestHandled: () => void
   onPopOut?: () => void
+  hasPendingInteraction?: (path: string) => boolean
 }
 
 const DIVIDER_SIZE = 4
@@ -28,7 +29,8 @@ export function TileManager({
   onNavigateToProcess,
   openRequests,
   onRequestHandled,
-  onPopOut
+  onPopOut,
+  hasPendingInteraction
 }: TileManagerProps) {
   const [layout, setLayout] = useState<LayoutPreset>('1')
   const [tiles, setTiles] = useState<TileSlot[]>([{ processPath: null, navigatedFromPath: null }])
@@ -197,7 +199,8 @@ export function TileManager({
     }
 
     const summary = toProcessSummary(process, tile.processPath)
-    const attention = checkNeedsAttention(summary, process)
+    const pending = hasPendingInteraction?.(tile.processPath) ?? false
+    const attention = checkNeedsAttention(summary, process, pending)
 
     const tileNavigate = (path: string, addNew: boolean) => handleTileNavigate(index, path, addNew)
 
@@ -211,6 +214,7 @@ export function TileManager({
           process={process}
           processPath={tile.processPath!}
           needsAttention={attention}
+          hasPendingInteraction={pending}
           onClose={() => handleClose(index)}
           onExpand={() => handleExpand(tile.processPath!)}
         />
@@ -222,6 +226,7 @@ export function TileManager({
             onNavigateToProcess={onNavigateToProcess}
             onTileNavigate={tileNavigate}
             navigatedFromPath={tile.navigatedFromPath}
+            hasPendingInteraction={pending}
           />
         </div>
       </div>

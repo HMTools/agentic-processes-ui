@@ -28,6 +28,7 @@ interface ProcessDiagramProps {
   focusNodeId?: string | null
   // For lazy prompts on subprocesses
   getSubProcess?: (relativePath: string) => { process: ProcessInstance; absolutePath: string } | undefined
+  hasPendingInteraction?: boolean
 }
 
 const nodeTypes: NodeTypes = {
@@ -42,7 +43,8 @@ function generateDiagram(
   onSubProcessNavigate?: (subProcess: ChildProcessRef, ctrlKey: boolean) => void,
   onParentNavigate?: (parent: ParentProcessRef, ctrlKey: boolean) => void,
   highlightedNodeId?: string | null,
-  getSubProcess?: (relativePath: string) => { process: ProcessInstance; absolutePath: string } | undefined
+  getSubProcess?: (relativePath: string) => { process: ProcessInstance; absolutePath: string } | undefined,
+  hasPendingInteraction?: boolean
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
@@ -129,6 +131,7 @@ function generateDiagram(
         step,
         isActive,
         processStatus: process.status,
+        hasPendingInteraction,
         ...(isActive && {
           currentSubstep: process.currentState.activeStep.currentSubstep,
           totalSubsteps: process.currentState.activeStep.totalSubsteps,
@@ -209,13 +212,13 @@ function generateDiagram(
 }
 
 // Inner component that has access to useReactFlow
-function ProcessDiagramInner({ process, onStepClick, onSubProcessClick, onParentClick, focusNodeId, getSubProcess }: ProcessDiagramProps) {
+function ProcessDiagramInner({ process, onStepClick, onSubProcessClick, onParentClick, focusNodeId, getSubProcess, hasPendingInteraction }: ProcessDiagramProps) {
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(focusNodeId || null)
   const { fitBounds, getNode } = useReactFlow()
 
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
-    () => generateDiagram(process, onSubProcessClick, onParentClick, highlightedNodeId, getSubProcess),
-    [process, onSubProcessClick, onParentClick, highlightedNodeId, getSubProcess]
+    () => generateDiagram(process, onSubProcessClick, onParentClick, highlightedNodeId, getSubProcess, hasPendingInteraction),
+    [process, onSubProcessClick, onParentClick, highlightedNodeId, getSubProcess, hasPendingInteraction]
   )
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
@@ -223,10 +226,10 @@ function ProcessDiagramInner({ process, onStepClick, onSubProcessClick, onParent
 
   // Update nodes when process or highlight changes
   useEffect(() => {
-    const { nodes: newNodes, edges: newEdges } = generateDiagram(process, onSubProcessClick, onParentClick, highlightedNodeId, getSubProcess)
+    const { nodes: newNodes, edges: newEdges } = generateDiagram(process, onSubProcessClick, onParentClick, highlightedNodeId, getSubProcess, hasPendingInteraction)
     setNodes(newNodes)
     setEdges(newEdges)
-  }, [process, onSubProcessClick, onParentClick, highlightedNodeId, getSubProcess, setNodes, setEdges])
+  }, [process, onSubProcessClick, onParentClick, highlightedNodeId, getSubProcess, hasPendingInteraction, setNodes, setEdges])
 
   // Focus on the target node when focusNodeId is provided
   useEffect(() => {
@@ -335,6 +338,7 @@ function ProcessDiagramInner({ process, onStepClick, onSubProcessClick, onParent
             // Handle step nodes
             if (node.id.startsWith('step-')) {
               if (data?.step?.status === 'completed') return '#10b981'
+              if (data?.hasPendingInteraction && data?.isActive && data?.step?.approvalRequired && !data?.step?.approved) return '#f472b6'
               if (data?.isActive) return '#22d3ee'
               return '#30363d'
             }

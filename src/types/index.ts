@@ -52,6 +52,13 @@ export interface ActiveStepSubstep {
   name: string
 }
 
+export interface FileChange {
+  path: string
+  operation: 'created' | 'edited' | 'deleted'
+  tool: string
+  timestamp: string
+}
+
 export interface ActiveStep {
   id: StepId
   name: string
@@ -59,6 +66,7 @@ export interface ActiveStep {
   actionDetails?: string
   totalSubsteps: number
   currentSubstep?: ActiveStepSubstep
+  filesChanged?: FileChange[]
 }
 
 export interface ProcessCurrentState {

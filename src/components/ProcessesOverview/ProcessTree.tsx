@@ -12,9 +12,11 @@ interface ProcessTreeProps {
   onSelectProcess: (path: string, ctrlKey: boolean) => void
   onContextMenu: (e: React.MouseEvent, path: string) => void
   attentionCount: number
+  hasPendingInteraction?: (path: string) => boolean
 }
 
-function needsAttention(process: ProcessSummary, fullProcess?: ProcessInstance): boolean {
+function needsAttention(process: ProcessSummary, fullProcess?: ProcessInstance, hasPendingInteraction?: boolean): boolean {
+  if (hasPendingInteraction) return true
   if (process.status === 'failed' || process.status === 'paused') return true
   if (fullProcess?.steps.some(s => s.status === 'awaiting_approval')) return true
   // Fallback: catch steps stuck in in_progress with approvalRequired (agent failed to set awaiting_approval)
@@ -34,7 +36,8 @@ export function ProcessTree({
   selectedPaths,
   onSelectProcess,
   onContextMenu,
-  attentionCount
+  attentionCount,
+  hasPendingInteraction
 }: ProcessTreeProps) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<TreeFilter>('running')
@@ -59,7 +62,7 @@ export function ProcessTree({
       if (filter === 'running') return node.process.status === 'running'
       if (filter === 'attention') {
         const full = getProcess(node.process.path)
-        return needsAttention(node.process, full)
+        return needsAttention(node.process, full, hasPendingInteraction?.(node.process.path))
       }
       return true
     }
@@ -78,7 +81,7 @@ export function ProcessTree({
     }
 
     return tree.map(filterNode).filter(Boolean) as ProcessTreeNode[]
-  }, [tree, search, filter, getProcess])
+  }, [tree, search, filter, getProcess, hasPendingInteraction])
 
   const toggleExpand = (path: string) => {
     setExpandedPaths(prev => {
@@ -95,6 +98,8 @@ export function ProcessTree({
     const hasChildren = node.children.length > 0
     const items: React.ReactNode[] = []
 
+    const pending = hasPendingInteraction?.(node.process.path) ?? false
+
     items.push(
       <ProcessTreeItem
         key={node.process.path}
@@ -102,7 +107,8 @@ export function ProcessTree({
         fullProcess={full}
         depth={depth}
         isSelected={selectedPaths.has(node.process.path)}
-        needsAttention={needsAttention(node.process, full)}
+        needsAttention={needsAttention(node.process, full, pending)}
+        hasPendingInteraction={pending}
         isExpanded={isExpanded}
         hasChildren={hasChildren}
         onSelect={onSelectProcess}
