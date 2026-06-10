@@ -84,7 +84,10 @@ export function FilesView({ processPath, loading, filesChanged }: FilesViewProps
     )
   }
 
-  const userFiles = files.filter(f => !FRAMEWORK_FILES.has(f.name))
+  const changedFileNames = new Set(
+    (filesChanged ?? []).map(fc => fc.path.split(/[/\\]/).pop() || fc.path)
+  )
+  const userFiles = files.filter(f => !FRAMEWORK_FILES.has(f.name) && !changedFileNames.has(f.name))
   const frameworkFiles = files.filter(f => FRAMEWORK_FILES.has(f.name))
 
   return (
