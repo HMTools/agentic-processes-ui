@@ -17,7 +17,7 @@ The app displays processes in a clean dashboard with status cards. Clicking a pr
 ## Installation
 
 Download the latest release for your platform from
-[GitHub Releases](https://github.com/matan-h/agentic-processes-ui/releases/latest).
+[GitHub Releases](https://github.com/HMTools/agentic-processes-ui/releases/latest).
 
 | Platform | Download | Notes |
 |----------|----------|-------|

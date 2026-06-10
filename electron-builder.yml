@@ -31,7 +31,7 @@ asarUnpack:
 # Publish to GitHub Releases
 publish:
   provider: github
-  owner: matan-h
+  owner: HMTools
   repo: agentic-processes-ui
 
 # ---- Platform-specific targets ----
