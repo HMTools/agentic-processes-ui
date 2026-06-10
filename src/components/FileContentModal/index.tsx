@@ -138,8 +138,8 @@ export function FileContentModal({ file, onClose }: FileContentModalProps) {
       <div
         ref={modalRef}
         tabIndex={-1}
-        className="w-full max-w-4xl mx-4 bg-surface border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col"
-        style={{ maxHeight: '85vh' }}
+        className="w-full max-w-[90vw] mx-4 bg-surface border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col"
+        style={{ maxHeight: '90vh' }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-elevated flex-shrink-0">

@@ -1,184 +1,171 @@
-const { contextBridge, ipcRenderer } = require("electron");
-contextBridge.exposeInMainWorld("electronAPI", {
+const { contextBridge: s, ipcRenderer: n } = require("electron");
+s.exposeInMainWorld("electronAPI", {
   // Project selection
-  selectProjectFolder: () => ipcRenderer.invoke("select-project-folder"),
-  getCurrentProject: () => ipcRenderer.invoke("get-current-project"),
-  setProjectPath: (path) => ipcRenderer.invoke("set-project-path", path),
+  selectProjectFolder: () => n.invoke("select-project-folder"),
+  getCurrentProject: () => n.invoke("get-current-project"),
+  setProjectPath: (e) => n.invoke("set-project-path", e),
   // File watching
-  startWatching: (projectPath) => ipcRenderer.invoke("start-watching", projectPath),
-  stopWatching: (projectPath) => ipcRenderer.invoke("stop-watching", projectPath),
-  stopAllWatching: () => ipcRenderer.invoke("stop-all-watching"),
+  startWatching: (e) => n.invoke("start-watching", e),
+  stopWatching: (e) => n.invoke("stop-watching", e),
+  stopAllWatching: () => n.invoke("stop-all-watching"),
   // File reading
-  readProcessFile: (processPath, fileName) => ipcRenderer.invoke("read-process-file", processPath, fileName),
-  readMemoryDirectory: (processPath) => ipcRenderer.invoke("read-memory-directory", processPath),
+  readProcessFile: (e, t) => n.invoke("read-process-file", e, t),
+  readMemoryDirectory: (e) => n.invoke("read-memory-directory", e),
   // Process files listing and reading
-  listProcessFiles: (processPath) => ipcRenderer.invoke("list-process-files", processPath),
-  readFileContent: (filePath) => ipcRenderer.invoke("read-file-content", filePath),
+  listProcessFiles: (e) => n.invoke("list-process-files", e),
+  readFileContent: (e) => n.invoke("read-file-content", e),
   // File content watching (hot reload)
-  watchFile: (filePath) => ipcRenderer.invoke("watch-file", filePath),
-  unwatchFile: (filePath) => ipcRenderer.invoke("unwatch-file", filePath),
+  watchFile: (e) => n.invoke("watch-file", e),
+  unwatchFile: (e) => n.invoke("unwatch-file", e),
   // Process instance management
-  deleteProcessInstance: (processPath) => ipcRenderer.invoke("delete-process-instance", processPath),
+  deleteProcessInstance: (e) => n.invoke("delete-process-instance", e),
   // Template loading (unified from ~/.claude/agentic-processes/)
-  loadProcessTemplates: () => ipcRenderer.invoke("load-process-templates"),
-  loadStepTemplates: () => ipcRenderer.invoke("load-step-templates"),
+  loadProcessTemplates: () => n.invoke("load-process-templates"),
+  loadStepTemplates: () => n.invoke("load-step-templates"),
   // Q&A Session operations
-  readQASession: (processPath) => ipcRenderer.invoke("read-qa-session", processPath),
-  answerQuestion: (processPath, questionId, answer) => ipcRenderer.invoke("answer-question", processPath, questionId, answer),
-  completeQuestion: (processPath, questionId) => ipcRenderer.invoke("complete-question", processPath, questionId),
-  getQASessionStatus: (processPath) => ipcRenderer.invoke("get-qa-session-status", processPath),
+  readQASession: (e) => n.invoke("read-qa-session", e),
+  answerQuestion: (e, t, a) => n.invoke("answer-question", e, t, a),
+  completeQuestion: (e, t) => n.invoke("complete-question", e, t),
+  getQASessionStatus: (e) => n.invoke("get-qa-session-status", e),
   // Event listeners
-  onProcessUpdate: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("process-update", subscription);
-    return () => {
-      ipcRenderer.removeListener("process-update", subscription);
+  onProcessUpdate: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("process-update", t), () => {
+      n.removeListener("process-update", t);
     };
   },
-  onMemoryUpdate: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("memory-update", subscription);
-    return () => {
-      ipcRenderer.removeListener("memory-update", subscription);
+  onMemoryUpdate: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("memory-update", t), () => {
+      n.removeListener("memory-update", t);
     };
   },
-  onLogUpdate: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("log-update", subscription);
-    return () => {
-      ipcRenderer.removeListener("log-update", subscription);
+  onLogUpdate: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("log-update", t), () => {
+      n.removeListener("log-update", t);
     };
   },
-  onFileContentUpdate: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("file-content-update", subscription);
-    return () => {
-      ipcRenderer.removeListener("file-content-update", subscription);
+  onFileContentUpdate: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("file-content-update", t), () => {
+      n.removeListener("file-content-update", t);
     };
   },
-  onPendingInteractionUpdate: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("pending-interaction-update", subscription);
-    return () => {
-      ipcRenderer.removeListener("pending-interaction-update", subscription);
+  onPendingInteractionUpdate: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("pending-interaction-update", t), () => {
+      n.removeListener("pending-interaction-update", t);
     };
   },
-  onQASessionUpdate: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("qa-session-update", subscription);
-    return () => {
-      ipcRenderer.removeListener("qa-session-update", subscription);
+  onQASessionUpdate: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("qa-session-update", t), () => {
+      n.removeListener("qa-session-update", t);
     };
   },
-  onWatcherError: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("watcher-error", subscription);
-    return () => {
-      ipcRenderer.removeListener("watcher-error", subscription);
+  onWatcherError: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("watcher-error", t), () => {
+      n.removeListener("watcher-error", t);
     };
   },
   // ============================================================================
   // Agent Session API
   // ============================================================================
   // Get available agent types
-  agentGetAvailable: () => ipcRenderer.invoke("agent:get-available"),
+  agentGetAvailable: () => n.invoke("agent:get-available"),
   // Create a new agent session
-  agentCreate: (agentType, workingDirectory, processPath, options) => ipcRenderer.invoke("agent:create", agentType, workingDirectory, processPath, options),
+  agentCreate: (e, t, a, o) => n.invoke("agent:create", e, t, a, o),
   // Attach session to a process
-  agentAttach: (sessionId, processPath) => ipcRenderer.invoke("agent:attach", sessionId, processPath),
+  agentAttach: (e, t) => n.invoke("agent:attach", e, t),
   // Send a prompt to the agent
-  agentSendPrompt: (sessionId, prompt) => ipcRenderer.invoke("agent:send-prompt", sessionId, prompt),
+  agentSendPrompt: (e, t) => n.invoke("agent:send-prompt", e, t),
   // Send raw input (keyboard events)
-  agentInput: (sessionId, data) => ipcRenderer.invoke("agent:input", sessionId, data),
+  agentInput: (e, t) => n.invoke("agent:input", e, t),
   // Resize the terminal
-  agentResize: (sessionId, cols, rows) => ipcRenderer.invoke("agent:resize", sessionId, cols, rows),
+  agentResize: (e, t, a) => n.invoke("agent:resize", e, t, a),
   // Kill a session
-  agentKill: (sessionId) => ipcRenderer.invoke("agent:kill", sessionId),
+  agentKill: (e) => n.invoke("agent:kill", e),
   // List all sessions
-  agentList: () => ipcRenderer.invoke("agent:list"),
+  agentList: () => n.invoke("agent:list"),
   // Get a specific session
-  agentGet: (sessionId) => ipcRenderer.invoke("agent:get", sessionId),
+  agentGet: (e) => n.invoke("agent:get", e),
   // Get sessions for a specific process
-  agentGetForProcess: (processPath) => ipcRenderer.invoke("agent:get-for-process", processPath),
+  agentGetForProcess: (e) => n.invoke("agent:get-for-process", e),
   // External session discovery and migration
-  agentDiscoverExternal: (activeProcesses) => ipcRenderer.invoke("agent:discover-external", activeProcesses),
-  agentMigrateExternal: (externalSession, workingDirectory, options) => ipcRenderer.invoke("agent:migrate-external", externalSession, workingDirectory, options),
+  agentDiscoverExternal: (e) => n.invoke("agent:discover-external", e),
+  agentMigrateExternal: (e, t, a) => n.invoke("agent:migrate-external", e, t, a),
   // Terminal window management
-  openTerminalWindow: (sessionId, processPath, processName) => ipcRenderer.invoke("agent:open-window", sessionId, processPath, processName),
-  closeTerminalWindow: () => ipcRenderer.invoke("agent:close-window"),
-  getWindowParams: () => ipcRenderer.invoke("agent:get-window-params"),
+  openTerminalWindow: (e, t, a) => n.invoke("agent:open-window", e, t, a),
+  closeTerminalWindow: () => n.invoke("agent:close-window"),
+  getWindowParams: () => n.invoke("agent:get-window-params"),
   // Clipboard
-  clipboardReadText: () => ipcRenderer.invoke("clipboard:read-text"),
-  clipboardWriteText: (text) => ipcRenderer.invoke("clipboard:write-text", text),
+  clipboardReadText: () => n.invoke("clipboard:read-text"),
+  clipboardWriteText: (e) => n.invoke("clipboard:write-text", e),
   // ============================================================================
   // Channel API
   // ============================================================================
-  channelIsInstalled: () => ipcRenderer.invoke("channel:is-installed"),
-  channelGetInstalledPath: () => ipcRenderer.invoke("channel:get-installed-path"),
-  channelInstall: () => ipcRenderer.invoke("channel:install"),
-  channelUninstall: () => ipcRenderer.invoke("channel:uninstall"),
-  channelList: () => ipcRenderer.invoke("channel:list"),
-  channelGetForPid: (pid) => ipcRenderer.invoke("channel:get-for-pid", pid),
-  channelSendPrompt: (port, prompt, meta) => ipcRenderer.invoke("channel:send-prompt", port, prompt, meta),
-  channelCheckHealth: (port) => ipcRenderer.invoke("channel:check-health", port),
-  onChannelAvailable: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("channel:available", subscription);
-    return () => {
-      ipcRenderer.removeListener("channel:available", subscription);
+  channelIsInstalled: () => n.invoke("channel:is-installed"),
+  channelGetInstalledPath: () => n.invoke("channel:get-installed-path"),
+  channelInstall: () => n.invoke("channel:install"),
+  channelUninstall: () => n.invoke("channel:uninstall"),
+  channelList: () => n.invoke("channel:list"),
+  channelGetForPid: (e) => n.invoke("channel:get-for-pid", e),
+  channelSendPrompt: (e, t, a) => n.invoke("channel:send-prompt", e, t, a),
+  channelCheckHealth: (e) => n.invoke("channel:check-health", e),
+  onChannelAvailable: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("channel:available", t), () => {
+      n.removeListener("channel:available", t);
     };
   },
-  onChannelRemoved: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("channel:removed", subscription);
-    return () => {
-      ipcRenderer.removeListener("channel:removed", subscription);
+  onChannelRemoved: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("channel:removed", t), () => {
+      n.removeListener("channel:removed", t);
     };
   },
-  onChannelReply: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("channel:reply", subscription);
-    return () => {
-      ipcRenderer.removeListener("channel:reply", subscription);
+  onChannelReply: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("channel:reply", t), () => {
+      n.removeListener("channel:reply", t);
     };
   },
   // ============================================================================
   // Overview Window API
   // ============================================================================
-  openOverviewWindow: (projectPaths) => ipcRenderer.invoke("overview:open-window", projectPaths),
-  getOverviewWindowParams: () => ipcRenderer.invoke("overview:get-window-params"),
-  getCurrentProcesses: () => ipcRenderer.invoke("overview:get-current-processes"),
-  navigateToProcessInMain: (processPath) => ipcRenderer.invoke("overview:navigate-to-process", processPath),
-  onNavigateToProcessRequest: (callback) => {
-    const subscription = (_event, processPath) => callback(processPath);
-    ipcRenderer.on("navigate-to-process-request", subscription);
-    return () => {
-      ipcRenderer.removeListener("navigate-to-process-request", subscription);
+  openOverviewWindow: (e) => n.invoke("overview:open-window", e),
+  getOverviewWindowParams: () => n.invoke("overview:get-window-params"),
+  getCurrentProcesses: () => n.invoke("overview:get-current-processes"),
+  navigateToProcessInMain: (e) => n.invoke("overview:navigate-to-process", e),
+  onNavigateToProcessRequest: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("navigate-to-process-request", t), () => {
+      n.removeListener("navigate-to-process-request", t);
     };
   },
   // ============================================================================
   // Template Sources API
   // ============================================================================
-  templateSourcesList: () => ipcRenderer.invoke("template-sources:list"),
-  templateSourcesAdd: (name, url, branch, priority) => ipcRenderer.invoke("template-sources:add", name, url, branch, priority),
-  templateSourcesRemove: (name) => ipcRenderer.invoke("template-sources:remove", name),
-  templateSourcesToggle: (name) => ipcRenderer.invoke("template-sources:toggle", name),
-  templateSourcesUpdate: (name, updates) => ipcRenderer.invoke("template-sources:update", name, updates),
-  templateSourcesSync: (sourceName) => ipcRenderer.invoke("template-sources:sync", sourceName),
-  templateSourcesStatus: () => ipcRenderer.invoke("template-sources:status"),
+  templateSourcesList: () => n.invoke("template-sources:list"),
+  templateSourcesAdd: (e, t, a, o) => n.invoke("template-sources:add", e, t, a, o),
+  templateSourcesRemove: (e) => n.invoke("template-sources:remove", e),
+  templateSourcesToggle: (e) => n.invoke("template-sources:toggle", e),
+  templateSourcesUpdate: (e, t) => n.invoke("template-sources:update", e, t),
+  templateSourcesSync: (e) => n.invoke("template-sources:sync", e),
+  templateSourcesStatus: () => n.invoke("template-sources:status"),
   // Agent event listeners
-  onAgentOutput: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("agent:output", subscription);
-    return () => {
-      ipcRenderer.removeListener("agent:output", subscription);
+  onAgentOutput: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("agent:output", t), () => {
+      n.removeListener("agent:output", t);
     };
   },
-  onAgentStatus: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on("agent:status", subscription);
-    return () => {
-      ipcRenderer.removeListener("agent:status", subscription);
+  onAgentStatus: (e) => {
+    const t = (a, o) => e(o);
+    return n.on("agent:status", t), () => {
+      n.removeListener("agent:status", t);
     };
   }
 });

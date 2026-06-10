@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { ProcessFile, FileChange } from '../../types'
+import type { ProcessFile, ProcessFileType, FileChange } from '../../types'
 import { FileContentModal } from '../FileContentModal'
+
+function fileChangeToProcessFile(fc: FileChange): ProcessFile {
+  const basename = fc.path.split(/[/\\]/).pop() || fc.path
+  const ext = basename.split('.').pop()?.toLowerCase()
+  const type: ProcessFileType = ext === 'md' || ext === 'markdown' ? 'markdown' : 'json'
+  return { name: basename, path: fc.path, type, size: 0, modifiedAt: fc.timestamp }
+}
 
 interface FilesViewProps {
   processPath: string
@@ -97,7 +104,11 @@ export function FilesView({ processPath, loading, filesChanged }: FilesViewProps
             </div>
             <div className="space-y-1.5">
               {filesChanged.map((fc) => (
-                <FileChangeCard key={fc.path} fileChange={fc} />
+                <FileChangeCard
+                  key={fc.path}
+                  fileChange={fc}
+                  onClick={fc.operation === 'edited' ? () => setSelectedFile(fileChangeToProcessFile(fc)) : undefined}
+                />
               ))}
             </div>
           </div>
@@ -240,7 +251,7 @@ function FileCard({ file, onClick }: { file: ProcessFile; onClick: () => void })
   )
 }
 
-function FileChangeCard({ fileChange }: { fileChange: FileChange }) {
+function FileChangeCard({ fileChange, onClick }: { fileChange: FileChange; onClick?: () => void }) {
   const basename = fileChange.path.split(/[/\\]/).pop() || fileChange.path
 
   const formatTimestamp = (isoString: string): string => {
@@ -264,10 +275,18 @@ function FileChangeCard({ fileChange }: { fileChange: FileChange }) {
   }
 
   const config = operationConfig[fileChange.operation] || operationConfig.edited
+  const isClickable = !!onClick
+
+  const Tag = isClickable ? 'button' : 'div'
 
   return (
-    <div
-      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-border text-left"
+    <Tag
+      onClick={onClick}
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-border text-left w-full ${
+        isClickable
+          ? 'cursor-pointer hover:border-accent/50 hover:bg-surface-elevated transition-colors group'
+          : ''
+      }`}
       title={fileChange.path}
     >
       {/* Operation badge */}
@@ -277,7 +296,7 @@ function FileChangeCard({ fileChange }: { fileChange: FileChange }) {
 
       {/* File name + path */}
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-mono text-text-primary truncate block">
+        <span className={`text-sm font-mono text-text-primary truncate block ${isClickable ? 'group-hover:text-accent transition-colors' : ''}`}>
           {basename}
         </span>
         <span className="text-[11px] text-text-muted truncate block">
@@ -290,7 +309,14 @@ function FileChangeCard({ fileChange }: { fileChange: FileChange }) {
         <span className="text-[10px] text-text-muted">{fileChange.tool}</span>
         <span className="text-[10px] text-text-muted">{formatTimestamp(fileChange.timestamp)}</span>
       </div>
-    </div>
+
+      {/* View arrow for clickable items */}
+      {isClickable && (
+        <svg className="w-4 h-4 text-text-muted group-hover:text-accent transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      )}
+    </Tag>
   )
 }
 
