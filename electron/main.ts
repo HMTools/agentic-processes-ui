@@ -133,6 +133,15 @@ function createTerminalWindow(sessionId: string, processPath: string, processNam
   })
 }
 
+// Auto-update IPC handlers
+ipcMain.handle('update:get-current-version', () => {
+  return app.getVersion()
+})
+
+ipcMain.handle('update:quit-and-install', () => {
+  autoUpdater.quitAndInstall()
+})
+
 // IPC Handlers
 ipcMain.handle('select-project-folder', async () => {
   const result = await dialog.showOpenDialog({
@@ -1077,15 +1086,15 @@ function initializeChannelManager() {
   const cm = getChannelManager()
 
   cm.on('channel-available', (event: ChannelAvailableEvent) => {
-    mainWindow?.webContents.send('channel:available', event)
+    broadcastToRenderers('channel:available', event)
   })
 
   cm.on('channel-removed', (event: ChannelRemovedEvent) => {
-    mainWindow?.webContents.send('channel:removed', event)
+    broadcastToRenderers('channel:removed', event)
   })
 
   cm.on('channel-reply', (event: ChannelReply & { parentPid: number }) => {
-    mainWindow?.webContents.send('channel:reply', event)
+    broadcastToRenderers('channel:reply', event)
   })
 }
 
@@ -1098,7 +1107,7 @@ ipcMain.handle('channel:get-installed-path', () => {
 })
 
 ipcMain.handle('channel:install', () => {
-  return installChannelGlobally()
+  return installChannelGlobally(!app.isPackaged)
 })
 
 ipcMain.handle('channel:uninstall', () => {
@@ -1322,7 +1331,46 @@ app.whenReady().then(() => {
   if (!process.env.VITE_DEV_SERVER_URL) {
     autoUpdater.autoDownload = true
     autoUpdater.autoInstallOnAppQuit = true
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+
+    autoUpdater.on('checking-for-update', () => {
+      mainWindow?.webContents.send('update:status', { status: 'checking' })
+    })
+
+    autoUpdater.on('update-available', (info) => {
+      mainWindow?.webContents.send('update:status', {
+        status: 'available',
+        version: info.version,
+      })
+    })
+
+    autoUpdater.on('update-not-available', () => {
+      mainWindow?.webContents.send('update:status', { status: 'not-available' })
+    })
+
+    autoUpdater.on('download-progress', (progress) => {
+      mainWindow?.webContents.send('update:status', {
+        status: 'downloading',
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+      })
+    })
+
+    autoUpdater.on('update-downloaded', (info) => {
+      mainWindow?.webContents.send('update:status', {
+        status: 'downloaded',
+        version: info.version,
+      })
+    })
+
+    autoUpdater.on('error', (err) => {
+      mainWindow?.webContents.send('update:status', {
+        status: 'error',
+        error: err?.message || 'Unknown error',
+      })
+    })
+
+    autoUpdater.checkForUpdates().catch((err) => {
       console.log('Auto-update check failed:', err?.message)
     })
   }

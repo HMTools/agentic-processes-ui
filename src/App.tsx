@@ -4,6 +4,7 @@ import { useSettingsState, SettingsContext } from './hooks/useSettings'
 import { useTemplates } from './hooks/useTemplates'
 import { useAgentSessions } from './hooks/useAgentSessions'
 import { usePendingInteractions } from './hooks/usePendingInteractions'
+import { useAutoUpdate } from './hooks/useAutoUpdate'
 import { Dashboard } from './components/Dashboard'
 import { DiagramView } from './components/DiagramView'
 import { Settings } from './components/Settings'
@@ -14,6 +15,7 @@ import { NewProcessModal } from './components/NewProcessModal'
 import { Sidebar } from './components/Layout/Sidebar'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { UpdateBanner } from './components/UpdateBanner'
 import { ErrorDisplay } from './components/ErrorDisplay'
 import type { ProcessTemplate } from './types'
 
@@ -62,6 +64,9 @@ function App() {
   // Track which processes have pending interactions (waiting for user input)
   const activeProcessPathsMemo = useMemo(() => activeProcesses.map(p => p.path), [activeProcesses])
   const { hasPendingInteraction } = usePendingInteractions(activeProcessPathsMemo)
+
+  // Auto-update state
+  const { updateState, dismissUpdate, restartToUpdate } = useAutoUpdate()
 
   // Periodically discover external Claude Code sessions
   // Use refs to avoid re-triggering the interval on every render
@@ -258,6 +263,12 @@ function App() {
         />
 
         {/* Main content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <UpdateBanner
+            updateState={updateState}
+            onDismiss={dismissUpdate}
+            onRestart={restartToUpdate}
+          />
         <div className="flex-1 flex overflow-hidden">
           <ErrorBoundary>
             {currentView === 'settings' ? (
@@ -336,6 +347,7 @@ function App() {
               />
             )}
           </ErrorBoundary>
+        </div>
         </div>
 
         {/* New Process Modal */}

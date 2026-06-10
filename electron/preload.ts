@@ -42,6 +42,15 @@ export interface WatcherErrorEvent {
   error: string
 }
 
+export interface UpdateStatusEvent {
+  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  percent?: number
+  transferred?: number
+  total?: number
+  error?: string
+}
+
 export interface StartWatchingResult {
   success: boolean
   error?: string
@@ -418,7 +427,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => {
       ipcRenderer.removeListener('agent:status', subscription)
     }
-  }
+  },
+
+  // Auto-Update API
+  updateGetCurrentVersion: () =>
+    ipcRenderer.invoke('update:get-current-version') as Promise<string>,
+
+  updateQuitAndInstall: () =>
+    ipcRenderer.invoke('update:quit-and-install') as Promise<void>,
+
+  onUpdateStatus: (callback: (event: UpdateStatusEvent) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: UpdateStatusEvent) => callback(data)
+    ipcRenderer.on('update:status', subscription)
+    return () => {
+      ipcRenderer.removeListener('update:status', subscription)
+    }
+  },
 })
 
 // Type declaration for the window object
@@ -499,6 +523,10 @@ declare global {
       onChannelAvailable: (callback: (event: { parentPid: number; port: number }) => void) => () => void
       onChannelRemoved: (callback: (event: { parentPid: number }) => void) => () => void
       onChannelReply: (callback: (event: ChannelReply & { parentPid: number }) => void) => () => void
+      // Auto-Update API
+      updateGetCurrentVersion: () => Promise<string>
+      updateQuitAndInstall: () => Promise<void>
+      onUpdateStatus: (callback: (event: UpdateStatusEvent) => void) => () => void
     }
   }
 }
