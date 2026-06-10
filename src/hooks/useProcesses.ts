@@ -229,21 +229,28 @@ export function useProcesses(options: UseProcessesOptions = {}) {
     }
   }, [])
 
-  // Restore watchers on mount (for persisted project paths)
+  // Restore watchers on mount (for persisted project paths, or auto-start global watcher)
   useEffect(() => {
-    const restoreWatchers = async () => {
+    const initWatchers = async () => {
       if (!isElectron()) return
-      
-      // Start watchers for all project paths that aren't already being watched
-      for (const path of projectPaths) {
-        if (!watchingPaths.has(path)) {
-          console.log('[useProcesses] Restoring watcher for:', path)
-          await startWatching(path)
+
+      if (projectPaths.length > 0) {
+        // Start watchers for all project paths that aren't already being watched
+        for (const path of projectPaths) {
+          if (!watchingPaths.has(path)) {
+            console.log('[useProcesses] Restoring watcher for:', path)
+            await startWatching(path)
+          }
         }
+      } else if (watchingPaths.size === 0) {
+        // No project paths — start global watcher anyway
+        // The watcher monitors ~/.claude/agentic-processes/ regardless of the path arg
+        console.log('[useProcesses] Auto-starting global watcher (no project paths)')
+        await startWatching('__global__')
       }
     }
-    
-    restoreWatchers()
+
+    initWatchers()
     // Only run when projectPaths changes from external source (e.g., initial load)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -287,13 +294,16 @@ export function useProcesses(options: UseProcessesOptions = {}) {
     setError(null)
   }, [])
 
-  // Retry watching all projects
+  // Retry watching all projects (or global watcher if no project paths)
   const retryWatching = useCallback(async () => {
     setError(null)
-    // Stop all and restart
     await stopWatching()
-    for (const path of projectPaths) {
-      await startWatching(path)
+    if (projectPaths.length > 0) {
+      for (const path of projectPaths) {
+        await startWatching(path)
+      }
+    } else {
+      await startWatching('__global__')
     }
   }, [projectPaths, startWatching, stopWatching])
 

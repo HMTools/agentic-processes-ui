@@ -12,7 +12,6 @@ import { AgentSessions } from './components/AgentSessions'
 import { ProcessesOverview } from './components/ProcessesOverview'
 import { NewProcessModal } from './components/NewProcessModal'
 import { Sidebar } from './components/Layout/Sidebar'
-import { WelcomeScreen } from './components/Layout/WelcomeScreen'
 import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ErrorDisplay } from './components/ErrorDisplay'
@@ -44,10 +43,6 @@ function App() {
     initialWorkspace: settingsState.settings.workspace,
     onWorkspaceChange: settingsState.updateWorkspaceSettings
   })
-
-  // Derived state: has at least one project folder configured
-  // We require at least one project folder to show Dashboard (since that's where processes live)
-  const hasProjectFolders = projectPaths.length > 0
 
   // Lift templates to App level so Dashboard and Templates page can both access them
   // Templates now load from framework + all project folders
@@ -222,8 +217,7 @@ function App() {
         return
       }
 
-      // Only open modal if at least one project is loaded
-      if (e.ctrlKey && e.shiftKey && e.key === 'N' && projectPaths.length > 0) {
+      if (e.ctrlKey && e.shiftKey && e.key === 'N') {
         e.preventDefault()
         handleOpenNewProcess()
       }
@@ -231,7 +225,7 @@ function App() {
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleOpenNewProcess, projectPaths.length])
+  }, [handleOpenNewProcess])
 
   return (
     <ToastProvider>
@@ -289,7 +283,7 @@ function App() {
                 processes={processes}
                 getProcess={getProcess}
                 onNavigateToProcess={handleNavigateToProcess}
-                onNewProcess={projectPaths.length > 0 ? handleOpenNewProcess : undefined}
+                onNewProcess={handleOpenNewProcess}
                 onPopOut={handlePopOutOverview}
                 initialPaths={overviewInitialPaths}
                 onInitialPathsConsumed={() => setOverviewInitialPaths(null)}
@@ -300,13 +294,6 @@ function App() {
                 onBack={handleNavigateToDashboard}
                 onNavigateToProcess={handleNavigateToProcess}
                 getProcess={getProcess}
-              />
-            ) : !hasProjectFolders ? (
-              <WelcomeScreen 
-                frameworkPath={frameworkPath}
-                projectPaths={projectPaths}
-                onAddFolder={addFolder}
-                onSelectFolder={selectFolder}
               />
             ) : error ? (
               <ErrorDisplay
@@ -343,7 +330,7 @@ function App() {
                 onSelectProcess={setSelectedProcessPath}
                 getProcess={getProcess}
                 processErrors={processErrors}
-                onNewProcess={projectPaths.length > 0 ? handleOpenNewProcess : undefined}
+                onNewProcess={handleOpenNewProcess}
                 externalSessions={externalSessions}
                 onMigrateSession={handleMigrateSession}
               />
@@ -352,16 +339,16 @@ function App() {
         </div>
 
         {/* New Process Modal */}
-        {projectPaths.length > 0 && (
-          <NewProcessModal
-            isOpen={showNewProcessModal}
-            onClose={handleCloseNewProcessModal}
-            templates={processTemplates}
-            projectPaths={projectPaths}
-            agentSettings={settingsState.settings.agent}
-            preSelectedTemplate={preSelectedTemplate}
-          />
-        )}
+        <NewProcessModal
+          isOpen={showNewProcessModal}
+          onClose={handleCloseNewProcessModal}
+          templates={processTemplates}
+          projectPaths={projectPaths}
+          agentSettings={settingsState.settings.agent}
+          preSelectedTemplate={preSelectedTemplate}
+          onSelectFolder={selectFolder}
+          onAddFolder={addFolder}
+        />
         </div>
       </SettingsContext.Provider>
     </ToastProvider>

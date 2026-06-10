@@ -21,6 +21,10 @@ interface NewProcessModalProps {
   agentSettings: AgentSettings
   /** Pre-selected template (e.g. from Templates page "Use Template" button) */
   preSelectedTemplate?: ProcessTemplate | null
+  /** Opens folder picker dialog and returns selected path */
+  onSelectFolder?: () => Promise<string | null>
+  /** Add a folder as a project working directory */
+  onAddFolder?: (path: string) => Promise<void>
 }
 
 export function NewProcessModal({
@@ -29,7 +33,9 @@ export function NewProcessModal({
   templates,
   projectPaths,
   agentSettings,
-  preSelectedTemplate
+  preSelectedTemplate,
+  onSelectFolder,
+  onAddFolder
 }: NewProcessModalProps) {
   // Step management - skip project selection if only one project
   const needsProjectSelection = projectPaths.length > 1
@@ -193,15 +199,27 @@ export function NewProcessModal({
             </div>
             <h3 className="text-lg font-semibold text-text-primary mb-2">No Project Folder</h3>
             <p className="text-sm text-text-muted mb-6">
-              Add a project folder first to create processes. The project folder should contain (or will have)
-              processes will be created in <code className="px-1 py-0.5 bg-surface rounded text-accent font-mono text-xs">~/.claude/agentic-processes/</code>.
+              Add a project folder to create processes. This folder is used as the working directory for agent sessions.
             </p>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-background hover:bg-accent/90 transition-colors"
-            >
-              Got it
-            </button>
+            <div className="flex gap-3 justify-center">
+              {onSelectFolder && onAddFolder && (
+                <button
+                  onClick={async () => {
+                    const path = await onSelectFolder()
+                    if (path) await onAddFolder(path)
+                  }}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-background hover:bg-accent/90 transition-colors"
+                >
+                  Add Project Folder
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-surface transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       </div>

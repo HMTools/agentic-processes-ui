@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import type { ProcessSummary, ProcessInstance, ExternalSession } from '../../types'
 import { ProcessCard } from './ProcessCard'
 import { buildProcessTree, type ProcessTreeNode } from '../../utils/processTree'
+import logo from '../../assets/logo.png'
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'failed'
 type ViewMode = 'flat' | 'tree'
@@ -142,7 +143,9 @@ export function Dashboard({
   }
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full w-full bg-background" style={{ display: 'grid', gridTemplateColumns: '3fr 2fr' }}>
+      {/* Left: Process list */}
+      <div className="flex flex-col min-w-0 overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
@@ -297,6 +300,19 @@ export function Dashboard({
             </div>
           )
         )}
+      </div>
+      </div>
+
+      {/* Right: Panda panel */}
+      <div className="flex flex-col items-center justify-center border-l border-border p-8">
+        <div className="w-full max-w-[400px] aspect-square p-[2px] rounded-2xl bg-gradient-to-br from-accent/60 via-accent/20 to-transparent shadow-glow-cyan">
+          <div className="w-full h-full rounded-2xl bg-surface overflow-hidden">
+            <img src={logo} alt="Agentic Processes" className="w-full h-full object-contain" />
+          </div>
+        </div>
+        <p className="text-text-secondary text-sm mt-6 text-center">
+          Visual process viewer for the Agentic Process System
+        </p>
       </div>
     </div>
   )
