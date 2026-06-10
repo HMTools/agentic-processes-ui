@@ -33,6 +33,7 @@ publish:
   provider: github
   owner: HMTools
   repo: agentic-processes-ui
+  releaseType: release
 
 # ---- Platform-specific targets ----
 
