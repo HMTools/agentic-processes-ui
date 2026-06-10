@@ -1,0 +1,72 @@
+appId: com.agentic-processes.ui
+productName: Agentic Processes UI
+copyright: Copyright (c) 2024-2026 Matan Hager
+
+# Directories
+directories:
+  output: release
+
+# Files to include in the asar archive
+files:
+  - dist/**/*
+  - dist-electron/**/*
+
+# Channel-server bundled as an extra resource (outside asar)
+extraResources:
+  - from: channel-server/dist/
+    to: channel-server/dist/
+    filter:
+      - "**/*"
+  - from: channel-server/node_modules/
+    to: channel-server/node_modules/
+    filter:
+      - "**/*"
+  - from: channel-server/package.json
+    to: channel-server/package.json
+
+# node-pty native binaries must be outside asar
+asarUnpack:
+  - "**/node_modules/node-pty/**"
+
+# Publish to GitHub Releases
+publish:
+  provider: github
+  owner: matan-h
+  repo: agentic-processes-ui
+
+# ---- Platform-specific targets ----
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: images/icon.png
+  # SignPath signs after build via CI integration (see .github/workflows/build.yml)
+  # Set CSC_LINK and CSC_KEY_PASSWORD in CI env to enable signing
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: images/icon.png
+  identity: null  # Skip code signing (not notarized, documented Gatekeeper workaround)
+
+dmg:
+  writeUpdateInfo: true
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: images/icon.png
+  category: Development

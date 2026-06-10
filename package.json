@@ -1,8 +1,12 @@
 {
   "name": "agentic-processes-ui",
-  "private": true,
   "version": "1.0.0",
   "description": "Visual UI for the Agentic Processes Framework",
+  "author": "Matan Hager",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/matan-h/agentic-processes-ui"
+  },
   "main": "dist-electron/main.js",
   "type": "module",
   "scripts": {
@@ -11,11 +15,17 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron:dev": "vite",
-    "electron:build": "vite build && electron-builder",
+    "build:channel-server": "node scripts/build-channel-server.js",
+    "electron:build": "npm run build:channel-server && vite build && electron-builder --config electron-builder.yml",
+    "electron:build:win": "npm run build:channel-server && vite build && electron-builder --config electron-builder.yml --win",
+    "electron:build:mac": "npm run build:channel-server && vite build && electron-builder --config electron-builder.yml --mac",
+    "electron:build:linux": "npm run build:channel-server && vite build && electron-builder --config electron-builder.yml --linux",
+    "release": "npm run build:channel-server && vite build && electron-builder --config electron-builder.yml --publish always",
     "electron:preview": "vite build && electron ."
   },
   "dependencies": {
     "@xyflow/react": "^12.10.0",
+    "electron-updater": "^6.3.9",
     "mermaid": "^11.12.2",
     "node-pty": "^1.0.0",
     "react": "^19.2.0",
@@ -48,32 +58,5 @@
     "vite": "^7.2.4",
     "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14.6"
-  },
-  "build": {
-    "appId": "com.agentic-processes.ui",
-    "productName": "Agentic Processes UI",
-    "icon": "images/icon.png",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*"
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
-    "mac": {
-      "target": [
-        "dmg"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage"
-      ]
-    }
   }
 }

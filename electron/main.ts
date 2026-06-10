@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 import { readFile, readdir, stat, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import { watch, type FSWatcher } from 'chokidar'
+import { autoUpdater } from 'electron-updater'
 import { createFileWatcher, stopFileWatcher, stopAllFileWatchers } from './fileWatcher'
 import {
   getAgentManager,
@@ -159,7 +160,7 @@ ipcMain.handle('start-watching', async (_event, projectPath: string) => {
   if (mainWindow) {
     const result = await createFileWatcher(
       projectPath,
-      (event, fileType, data) => {
+      async (event, fileType, data) => {
         switch (fileType) {
           case 'process':
             if (event === 'added' || event === 'changed') {
@@ -1294,6 +1295,19 @@ ipcMain.handle('template-sources:status', async () => {
   return runTemplateManagerCommand(['status'])
 })
 
+// Single-instance lock: prevent multiple instances from conflicting
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
 // App lifecycle
 app.whenReady().then(() => {
   // Remove default menu bar
@@ -1303,6 +1317,15 @@ app.whenReady().then(() => {
 
   // Start channel discovery on app launch
   initializeChannelManager()
+
+  // Auto-update (production only)
+  if (!process.env.VITE_DEV_SERVER_URL) {
+    autoUpdater.autoDownload = true
+    autoUpdater.autoInstallOnAppQuit = true
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      console.log('Auto-update check failed:', err?.message)
+    })
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

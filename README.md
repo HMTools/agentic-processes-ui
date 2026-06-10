@@ -14,7 +14,33 @@ A visual Electron-based UI for the [Agentic Process System](../agentic-processes
 
 The app displays processes in a clean dashboard with status cards. Clicking a process opens an interactive diagram view showing all steps with their current status.
 
-## Getting Started
+## Installation
+
+Download the latest release for your platform from
+[GitHub Releases](https://github.com/matan-h/agentic-processes-ui/releases/latest).
+
+| Platform | Download | Notes |
+|----------|----------|-------|
+| **Windows** | `.exe` installer | Run the installer and follow the prompts |
+| **macOS** | `.dmg` disk image | Open the DMG and drag the app to Applications |
+| **Linux** | `.AppImage` | Make executable with `chmod +x` and run |
+
+### macOS Gatekeeper Notice
+
+Since the macOS build is not notarized, you may see a "cannot be opened" warning on first launch.
+To open the app:
+1. Right-click (or Control-click) the app icon
+2. Select **Open** from the context menu
+3. Click **Open** in the dialog that appears
+
+This only needs to be done once. Subsequent launches work normally.
+
+### Automatic Updates
+
+The app checks for updates on launch and will notify you when a new version is available.
+Updates are downloaded in the background and installed when you restart the app.
+
+## Development Setup
 
 ### Prerequisites
 

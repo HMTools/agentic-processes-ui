@@ -15,7 +15,7 @@ function getChannelServerPath(): string {
   const devPath = resolve(__installerDirname, '..', 'channel-server', 'dist', 'index.js')
   if (existsSync(devPath)) return devPath
 
-  // Packaged app path
+  // Packaged app: channel-server is bundled via extraResources in electron-builder.yml
   const prodPath = resolve(process.resourcesPath ?? __installerDirname, 'channel-server', 'dist', 'index.js')
   if (existsSync(prodPath)) return prodPath
 
