@@ -135,7 +135,8 @@ export async function hasActiveAgentSession(processPath: string): Promise<boolea
  */
 async function sendViaChannel(
   prompt: string,
-  meta?: Record<string, string>
+  meta?: Record<string, string>,
+  targetPid?: number
 ): Promise<{ success: boolean; message: string; noChannel?: boolean }> {
   try {
     const channels = await window.electronAPI.channelList()
@@ -147,9 +148,18 @@ async function sendViaChannel(
       }
     }
 
-    // For now, send to the first available channel.
-    // TODO: Match by PID when external session discovery provides Claude Code PID
-    const channel = channels[0]
+    let channel = channels[0]
+
+    // When a target PID is known, try to match the specific channel endpoint
+    if (targetPid && window.electronAPI.channelGetForPid) {
+      const matched = await window.electronAPI.channelGetForPid(targetPid)
+      if (matched) {
+        channel = matched
+      } else {
+        console.warn(`No channel found for PID ${targetPid}, falling back to first available channel (port ${channel.port})`)
+      }
+    }
+
     const result = await window.electronAPI.channelSendPrompt(channel.port, prompt, meta)
 
     if (!result.ok) {

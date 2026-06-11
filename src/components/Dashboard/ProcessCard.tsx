@@ -12,9 +12,10 @@ interface ProcessCardProps {
   isSelected?: boolean
   externalSession?: ExternalSession | null
   onMigrateSession?: () => void
+  channelCount?: number
 }
 
-export function ProcessCard({ process, fullProcess, onClick, isSelected, externalSession, onMigrateSession }: ProcessCardProps) {
+export function ProcessCard({ process, fullProcess, onClick, isSelected, externalSession, onMigrateSession, channelCount }: ProcessCardProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const { showToast } = useToast()
@@ -62,6 +63,18 @@ export function ProcessCard({ process, fullProcess, onClick, isSelected, externa
           {externalSession && (
             <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
               External
+            </span>
+          )}
+          {channelCount != null && channelCount > 0 && (
+            <span
+              className="px-2 py-0.5 text-xs font-medium rounded-full bg-status-completed/20 text-status-completed border border-status-completed/30 flex items-center gap-1"
+              title={`${channelCount} channel(s) available`}
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0" />
+              </svg>
+              {channelCount}
             </span>
           )}
         </div>

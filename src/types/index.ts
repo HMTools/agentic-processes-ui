@@ -347,6 +347,13 @@ export interface ChannelReply {
   timestamp: string
 }
 
+export interface ChannelStatus {
+  isInstalled: boolean
+  channels: ChannelEndpoint[]
+  hasChannels: boolean
+  channelCount: number
+}
+
 // ============================================================================
 // Memory file types (topic-based memory/ directory)
 // ============================================================================

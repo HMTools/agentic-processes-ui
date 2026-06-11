@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useSettings } from '../../hooks/useSettings'
+import { useChannels } from '../../hooks/useChannels'
 import { useToast } from '../Toast'
 import { ConfirmationModal } from '../ConfirmationModal'
 import {
@@ -29,11 +30,17 @@ type ListItem =
 
 export function LazyPromptModal({ process, processPath, projectPath, onClose }: LazyPromptModalProps) {
   const { settings } = useSettings()
+  const { hasChannels, isInstalled: channelInstalled } = useChannels()
   const { showToast } = useToast()
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [optionsExpanded, setOptionsExpanded] = useState(true) // Expanded by default
   const modalRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+
+  // Channel guidance: show warning when delivery mode is 'channel' but channels unavailable
+  const showChannelWarning = settings.lazyPrompts.defaultAction === 'agent-apply'
+    && settings.lazyPrompts.deliveryMode === 'channel'
+    && !hasChannels
 
   // Confirmation modal state for creating agent when no session exists
   const [showCreateAgentConfirm, setShowCreateAgentConfirm] = useState(false)
@@ -291,6 +298,21 @@ export function LazyPromptModal({ process, processPath, projectPath, onClose }: 
             </svg>
           </button>
         </div>
+
+        {/* Channel guidance banner */}
+        {showChannelWarning && (
+          <div className="mx-4 mt-3 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-start gap-2">
+            <svg className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <p className="text-xs text-yellow-300">
+              {!channelInstalled
+                ? 'Channel server not installed. Install it in Settings or switch delivery mode to PTY.'
+                : 'No Claude Code sessions with channels detected. Start a new Claude Code session or switch to PTY delivery.'}
+            </p>
+          </div>
+        )}
 
         {/* List */}
         <div ref={listRef} className="border-b border-border max-h-[40vh] overflow-y-auto">

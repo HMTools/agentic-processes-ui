@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import type { ProcessSummary, ProcessInstance, ExternalSession } from '../../types'
 import { ProcessCard } from './ProcessCard'
 import { buildProcessTree, type ProcessTreeNode } from '../../utils/processTree'
+import { useChannels } from '../../hooks/useChannels'
 import logo from '../../assets/logo.png'
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'failed'
@@ -48,6 +49,7 @@ export function Dashboard({
   const [showErrors, setShowErrors] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('tree')
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
+  const { channelCount } = useChannels()
 
   const filteredProcesses = filter === 'all'
     ? processes
@@ -115,6 +117,7 @@ export function Dashboard({
                   ? () => onMigrateSession(node.process.path)
                   : undefined
                 }
+                channelCount={channelCount}
               />
             </div>
             {hasChildren && (
@@ -286,6 +289,7 @@ export function Dashboard({
                     ? () => onMigrateSession(process.path)
                     : undefined
                   }
+                  channelCount={channelCount}
                 />
               ))}
             </div>

@@ -48,7 +48,27 @@ export function getInstalledChannelPath(): string | null {
   return entry?.args?.[0] ?? null
 }
 
-export function installChannelGlobally(): { success: boolean; error?: string } {
+/**
+ * Detect whether the app is running in development mode.
+ * In dev mode, the channel server path points to a local dev build rather than a packaged resource.
+ */
+export function isDevMode(isPackaged?: boolean): boolean {
+  if (typeof isPackaged === 'boolean') return !isPackaged
+  // Fallback: check if the server path resolves to a dev location (outside resources/)
+  const serverPath = getChannelServerPath()
+  return !serverPath.includes('resources')
+}
+
+/**
+ * Get dev-mode instructions for the user.
+ * Returns null for packaged apps (no special flags needed).
+ */
+export function getDevModeInstructions(isPackaged?: boolean): string | null {
+  if (!isDevMode(isPackaged)) return null
+  return 'Development mode: Claude Code sessions need the --dangerously-load-development-channels flag to connect to this channel server.'
+}
+
+export function installChannelGlobally(isDev?: boolean): { success: boolean; error?: string } {
   try {
     const serverPath = getChannelServerPath()
     if (!existsSync(serverPath)) {
@@ -58,10 +78,17 @@ export function installChannelGlobally(): { success: boolean; error?: string } {
     const config = readClaudeConfig()
     const mcpServers = (config.mcpServers ?? {}) as Record<string, unknown>
 
-    mcpServers[SERVER_NAME] = {
+    const mcpEntry: Record<string, unknown> = {
       command: 'node',
       args: [serverPath],
     }
+
+    // In dev mode, add env flag so the channel server knows it's running in development
+    if (isDev) {
+      mcpEntry.env = { CHANNEL_DEV_MODE: 'true' }
+    }
+
+    mcpServers[SERVER_NAME] = mcpEntry
 
     config.mcpServers = mcpServers
     writeClaudeConfig(config)

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Terminal, getTerminalApi } from './Terminal'
 import { useSettings } from '../../hooks/useSettings'
-import type { AgentSession, AgentType, ProcessInstance, ExternalSession, ChannelEndpoint } from '../../types'
+import { useChannels } from '../../hooks/useChannels'
+import type { AgentSession, AgentType, ProcessInstance, ExternalSession } from '../../types'
 
 interface AgentSessionPanelProps {
   process?: ProcessInstance
@@ -21,28 +22,12 @@ export function AgentSessionPanel({
   onMigrateSession
 }: AgentSessionPanelProps) {
   const { settings } = useSettings()
+  const { channels, hasChannels: hasChannel } = useChannels()
   const [session, setSession] = useState<AgentSession | null>(null)
   const [isStarting, setIsStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [availableAgents, setAvailableAgents] = useState<Array<{ type: AgentType; displayName: string; available: boolean }>>([])
   const [isMigrating, setIsMigrating] = useState(false)
-  const [channelEndpoints, setChannelEndpoints] = useState<ChannelEndpoint[]>([])
-
-  // Load channel endpoints
-  useEffect(() => {
-    if (!window.electronAPI?.channelList) return
-    window.electronAPI.channelList().then(setChannelEndpoints)
-
-    const unsubAvailable = window.electronAPI.onChannelAvailable?.(() => {
-      window.electronAPI.channelList().then(setChannelEndpoints)
-    })
-    const unsubRemoved = window.electronAPI.onChannelRemoved?.(() => {
-      window.electronAPI.channelList().then(setChannelEndpoints)
-    })
-    return () => { unsubAvailable?.(); unsubRemoved?.() }
-  }, [])
-
-  const hasChannel = channelEndpoints.length > 0
 
   // Load available agent types
   useEffect(() => {
@@ -232,7 +217,7 @@ export function AgentSessionPanel({
                   </span>
                 </div>
                 {hasChannel && (
-                  <div className="flex items-center gap-1" title={`Channel on port ${channelEndpoints[0]?.port}`}>
+                  <div className="flex items-center gap-1" title={`Channel on port ${channels[0]?.port}`}>
                     <svg className="w-3 h-3 text-status-completed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                         d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0" />
