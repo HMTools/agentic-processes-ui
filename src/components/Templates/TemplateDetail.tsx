@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import mermaid from 'mermaid'
 import type { ProcessTemplate, StepTemplate } from '../../types'
-import { formatCategoryName, getStepRefDisplayName } from '../../services/templatesService'
+import { formatCategoryName, getStepRefDisplayName, extractTemplateMemoryFlow } from '../../services/templatesService'
+import { MemoryFlowTable } from './MemoryFlowTable'
 
 export function toDisplayText(value: unknown): string {
   if (typeof value === 'string') return value
@@ -350,6 +351,8 @@ function JsonView({ template }: { template: ProcessTemplate | StepTemplate }) {
 
 // Process template formatted view
 function ProcessTemplateView({ template, expandedStepIndex, onStepClick, onSubProcessClick, highlightedStepIndex }: { template: ProcessTemplate; expandedStepIndex?: number | null; onStepClick?: (index: number | null) => void; onSubProcessClick?: (templateName: string, stepIndex: number) => void; highlightedStepIndex?: number | null }) {
+  const memoryFlow = useMemo(() => extractTemplateMemoryFlow(template), [template])
+
   return (
     <div className="space-y-6">
       {/* Metadata */}
@@ -488,6 +491,13 @@ function ProcessTemplateView({ template, expandedStepIndex, onStepClick, onSubPr
           })}
         </div>
       </Section>
+
+      {/* Memory Flow */}
+      {memoryFlow.allTopics.length > 0 && (
+        <Section title="Memory Flow">
+          <MemoryFlowTable flow={memoryFlow} />
+        </Section>
+      )}
 
       {/* References */}
       {template.references && (

@@ -511,6 +511,7 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
             processPath={processPath}
             onQASessionUpdate={handleQASessionUpdate}
             filesChanged={process.currentState?.activeStep?.filesChanged ?? []}
+            process={process}
           />
         </div>
 

@@ -1,4 +1,4 @@
-import type { ProcessInstance, ProcessSummary, ProcessStatus, StepStatus, StepId, ProcessStep } from '../types'
+import type { ProcessInstance, ProcessSummary, ProcessStatus, StepStatus, StepId, ProcessStep, MemoryFlowMapping, MemoryFlowStep } from '../types'
 
 /**
  * Normalize step status values from hyphenated format (as written by agents)
@@ -146,4 +146,35 @@ export function formatRelativeTime(isoString: string): string {
   if (diffHours < 24) return `${diffHours}h ago`
   if (diffDays < 7) return `${diffDays}d ago`
   return formatTimestamp(isoString)
+}
+
+// Extract memory flow mapping from a process instance
+export function extractMemoryFlow(process: ProcessInstance): MemoryFlowMapping {
+  const topicSet = new Set<string>()
+  const normalizeTopics = (topics: string[]) => topics.map(t => t.replace(/\.json$/, ''))
+
+  const steps: MemoryFlowStep[] = process.steps.map(step => {
+    const mfu = (step.stepDefinition as Record<string, unknown>)?.memoryFileUsage as
+      | { readFrom?: unknown; writeTo?: unknown }
+      | undefined
+    const readFrom: string[] = Array.isArray(mfu?.readFrom) ? (mfu.readFrom as string[]) : []
+    const writeTo: string[] = Array.isArray(mfu?.writeTo) ? (mfu.writeTo as string[]) : []
+    const normalizedRead = normalizeTopics(readFrom)
+    const normalizedWrite = normalizeTopics(writeTo)
+    normalizedRead.forEach(t => topicSet.add(t))
+    normalizedWrite.forEach(t => topicSet.add(t))
+    return {
+      stepNumber: step.number,
+      stepName: step.name,
+      stepId: step.id,
+      stepStatus: step.status,
+      readFrom: normalizedRead,
+      writeTo: normalizedWrite,
+    }
+  })
+
+  return {
+    steps,
+    allTopics: Array.from(topicSet).sort(),
+  }
 }

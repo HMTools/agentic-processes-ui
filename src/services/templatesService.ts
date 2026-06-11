@@ -1,8 +1,10 @@
-import type { 
-  ProcessTemplate, 
-  StepTemplate, 
-  TemplateSummary, 
-  StepSummary 
+import type {
+  ProcessTemplate,
+  StepTemplate,
+  TemplateSummary,
+  StepSummary,
+  MemoryFlowMapping,
+  MemoryFlowStep
 } from '../types'
 
 // Convert ProcessTemplate to TemplateSummary for list display
@@ -141,4 +143,33 @@ export function parseStepRef(stepRef: string): { category: string; name: string 
   }
 
   return null
+}
+
+// Extract memory flow mapping from a process template
+export function extractTemplateMemoryFlow(template: ProcessTemplate): MemoryFlowMapping {
+  const topicSet = new Set<string>()
+  const normalizeTopics = (topics: string[]) => topics.map(t => t.replace(/\.json$/, ''))
+
+  const steps: MemoryFlowStep[] = template.steps.map(step => {
+    const mfu = (step.stepDefinition as Record<string, unknown>)?.memoryFileUsage as
+      | { readFrom?: unknown; writeTo?: unknown }
+      | undefined
+    const readFrom: string[] = Array.isArray(mfu?.readFrom) ? (mfu.readFrom as string[]) : []
+    const writeTo: string[] = Array.isArray(mfu?.writeTo) ? (mfu.writeTo as string[]) : []
+    const normalizedRead = normalizeTopics(readFrom)
+    const normalizedWrite = normalizeTopics(writeTo)
+    normalizedRead.forEach(t => topicSet.add(t))
+    normalizedWrite.forEach(t => topicSet.add(t))
+    return {
+      stepNumber: step.number,
+      stepName: step.name,
+      readFrom: normalizedRead,
+      writeTo: normalizedWrite,
+    }
+  })
+
+  return {
+    steps,
+    allTopics: Array.from(topicSet).sort(),
+  }
 }

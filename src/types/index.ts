@@ -310,8 +310,6 @@ export interface AgentSettings {
 export interface WorkspaceConfig {
   /** @deprecated No longer used — templates/steps load from ~/.claude/agentic-processes/ */
   frameworkPath: string | null
-  /** Paths to project repos (used as working directories for agent sessions) */
-  projectPaths: string[]
 }
 
 // ============================================================================
@@ -390,6 +388,24 @@ export interface ProcessMemoryView {
 
 /** Alias: ProcessMemory now refers to the aggregated view */
 export type ProcessMemory = ProcessMemoryView
+
+// ============================================================================
+// Memory flow mapping types (for memory visualization)
+// ============================================================================
+
+export interface MemoryFlowStep {
+  stepNumber: number
+  stepName: string
+  stepId?: StepId
+  stepStatus?: StepStatus
+  readFrom: string[]
+  writeTo: string[]
+}
+
+export interface MemoryFlowMapping {
+  steps: MemoryFlowStep[]
+  allTopics: string[]
+}
 
 // ============================================================================
 // Log file types (log.json)

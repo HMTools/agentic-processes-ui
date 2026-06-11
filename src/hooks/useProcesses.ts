@@ -31,9 +31,6 @@ export function useProcesses(options: UseProcessesOptions = {}) {
   const [frameworkPath, setFrameworkPathState] = useState<string | null>(
     initialWorkspace?.frameworkPath ?? null
   )
-  const [projectPaths, setProjectPathsState] = useState<string[]>(
-    initialWorkspace?.projectPaths ?? []
-  )
   const [watchingPaths, setWatchingPaths] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const [processErrors, setProcessErrors] = useState<ProcessError[]>([])
@@ -44,9 +41,9 @@ export function useProcesses(options: UseProcessesOptions = {}) {
   // Persist workspace changes
   useEffect(() => {
     if (onWorkspaceChange) {
-      onWorkspaceChange({ frameworkPath, projectPaths })
+      onWorkspaceChange({ frameworkPath })
     }
-  }, [frameworkPath, projectPaths, onWorkspaceChange])
+  }, [frameworkPath, onWorkspaceChange])
 
   // Set framework path (wrapper to allow external setting)
   const setFrameworkPath = useCallback((path: string | null) => {
@@ -115,57 +112,6 @@ export function useProcesses(options: UseProcessesOptions = {}) {
     }
   }, [])
 
-  // Add a folder as a project working directory
-  // Process instances are now watched from ~/.claude/agentic-processes/ (global),
-  // but project paths are still used as working directories for agent sessions.
-  const addFolder = useCallback(async (path: string) => {
-    if (!isElectron()) {
-      setError('This app requires Electron to add folders.')
-      return
-    }
-
-    try {
-      // Add to project paths if not already present
-      setProjectPathsState(prev => {
-        if (prev.includes(path)) return prev
-        return [...prev, path]
-      })
-
-      // Start the global watcher (watches ~/.claude/agentic-processes/)
-      await startWatching(path)
-      console.log('[useProcesses] Added project path:', path)
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      setError(`Failed to add folder: ${errorMessage}`)
-      console.error('Add folder error:', err)
-    }
-  }, [startWatching])
-
-  // Remove a project folder
-  const removeProject = useCallback(async (path: string) => {
-    // Stop watching this project
-    await stopWatching(path)
-    
-    // Remove from project paths
-    setProjectPathsState(prev => prev.filter(p => p !== path))
-    
-    // Remove processes from this project
-    setProcesses(prev => {
-      const next = { ...prev }
-      for (const processPath of Object.keys(next)) {
-        if (processPath.startsWith(path)) {
-          delete next[processPath]
-        }
-      }
-      return next
-    })
-    
-    // Clear errors from this project
-    setProcessErrors(prev => prev.filter(e => !e.path.startsWith(path)))
-    
-    console.log('[useProcesses] Removed project:', path)
-  }, [stopWatching])
-
   // Handle process updates from file watcher
   useEffect(() => {
     if (!isElectron()) return
@@ -229,29 +175,18 @@ export function useProcesses(options: UseProcessesOptions = {}) {
     }
   }, [])
 
-  // Restore watchers on mount (for persisted project paths, or auto-start global watcher)
+  // Auto-start global watcher on mount
   useEffect(() => {
     const initWatchers = async () => {
       if (!isElectron()) return
 
-      if (projectPaths.length > 0) {
-        // Start watchers for all project paths that aren't already being watched
-        for (const path of projectPaths) {
-          if (!watchingPaths.has(path)) {
-            console.log('[useProcesses] Restoring watcher for:', path)
-            await startWatching(path)
-          }
-        }
-      } else if (watchingPaths.size === 0) {
-        // No project paths — start global watcher anyway
-        // The watcher monitors ~/.claude/agentic-processes/ regardless of the path arg
-        console.log('[useProcesses] Auto-starting global watcher (no project paths)')
+      if (watchingPaths.size === 0) {
+        console.log('[useProcesses] Auto-starting global watcher')
         await startWatching('__global__')
       }
     }
 
     initWatchers()
-    // Only run when projectPaths changes from external source (e.g., initial load)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -294,40 +229,31 @@ export function useProcesses(options: UseProcessesOptions = {}) {
     setError(null)
   }, [])
 
-  // Retry watching all projects (or global watcher if no project paths)
+  // Retry watching (restart global watcher)
   const retryWatching = useCallback(async () => {
     setError(null)
     await stopWatching()
-    if (projectPaths.length > 0) {
-      for (const path of projectPaths) {
-        await startWatching(path)
-      }
-    } else {
-      await startWatching('__global__')
-    }
-  }, [projectPaths, startWatching, stopWatching])
+    await startWatching('__global__')
+  }, [startWatching, stopWatching])
 
   return {
     // Multi-workspace state
     frameworkPath,
-    projectPaths,
     watchingPaths: Array.from(watchingPaths),
     isWatching,
-    
+
     // Error state
     error,
     processErrors: allErrors,
-    
+
     // Process data
     processes: processList,
     activeProcesses,
     completedProcesses,
     failedProcesses,
-    
+
     // Actions
     selectFolder,
-    addFolder,
-    removeProject,
     setFrameworkPath,
     startWatching,
     stopWatching,

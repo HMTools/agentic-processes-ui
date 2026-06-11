@@ -15,17 +15,13 @@ interface NavigationEntry {
 }
 
 interface TemplatesProps {
-  /** @deprecated No longer used -- templates load from ~/.claude/agentic-processes/ */
-  frameworkPath: string | null
-  /** Project folder paths (kept for API compat) */
-  projectPaths: string[]
   onBack: () => void
   onUseTemplate?: (template: ProcessTemplate) => void
   initialSelectedTemplate?: ProcessTemplate | null
   onInitialTemplateConsumed?: () => void
 }
 
-export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate, initialSelectedTemplate, onInitialTemplateConsumed }: TemplatesProps) {
+export function Templates({ onBack, onUseTemplate, initialSelectedTemplate, onInitialTemplateConsumed }: TemplatesProps) {
   const {
     processTemplates,
     stepTemplates,
@@ -34,7 +30,7 @@ export function Templates({ frameworkPath, projectPaths, onBack, onUseTemplate, 
     isLoading,
     error,
     loadTemplates
-  } = useTemplates(frameworkPath, projectPaths)
+  } = useTemplates()
 
   const { isFavorite, toggleFavorite, countFavorites } = useFavoriteTemplates()
 

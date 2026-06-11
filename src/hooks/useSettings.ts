@@ -16,8 +16,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     permissionMode: 'regular'
   },
   workspace: {
-    frameworkPath: null,
-    projectPaths: []
+    frameworkPath: null
   }
 }
 

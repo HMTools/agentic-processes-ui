@@ -141,8 +141,6 @@ export interface ChannelReply {
 contextBridge.exposeInMainWorld('electronAPI', {
   // Project selection
   selectProjectFolder: () => ipcRenderer.invoke('select-project-folder'),
-  getCurrentProject: () => ipcRenderer.invoke('get-current-project'),
-  setProjectPath: (path: string) => ipcRenderer.invoke('set-project-path', path),
   
   // File watching
   startWatching: (projectPath: string) => ipcRenderer.invoke('start-watching', projectPath) as Promise<StartWatchingResult>,
@@ -367,11 +365,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Overview Window API
   // ============================================================================
 
-  openOverviewWindow: (projectPaths: string[]) =>
-    ipcRenderer.invoke('overview:open-window', projectPaths) as Promise<{ success: boolean; error?: string }>,
+  openOverviewWindow: () =>
+    ipcRenderer.invoke('overview:open-window') as Promise<{ success: boolean; error?: string }>,
 
   getOverviewWindowParams: () =>
-    ipcRenderer.invoke('overview:get-window-params') as Promise<{ projectPaths: string[] } | null>,
+    ipcRenderer.invoke('overview:get-window-params') as Promise<null>,
 
   getCurrentProcesses: () =>
     ipcRenderer.invoke('overview:get-current-processes') as Promise<Record<string, unknown>>,
@@ -450,8 +448,6 @@ declare global {
   interface Window {
     electronAPI: {
       selectProjectFolder: () => Promise<string | null>
-      getCurrentProject: () => Promise<string | null>
-      setProjectPath: (path: string) => Promise<boolean>
       startWatching: (projectPath: string) => Promise<StartWatchingResult>
       stopWatching: (projectPath?: string) => Promise<boolean>
       stopAllWatching: () => Promise<boolean>
@@ -498,8 +494,8 @@ declare global {
       onAgentOutput: (callback: (event: AgentOutputEvent) => void) => () => void
       onAgentStatus: (callback: (event: AgentStatusEvent) => void) => () => void
       // Overview Window API
-      openOverviewWindow: (projectPaths: string[]) => Promise<{ success: boolean; error?: string }>
-      getOverviewWindowParams: () => Promise<{ projectPaths: string[] } | null>
+      openOverviewWindow: () => Promise<{ success: boolean; error?: string }>
+      getOverviewWindowParams: () => Promise<null>
       getCurrentProcesses: () => Promise<Record<string, unknown>>
       navigateToProcessInMain: (processPath: string) => Promise<{ success: boolean }>
       onNavigateToProcessRequest: (callback: (processPath: string) => void) => () => void

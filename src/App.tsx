@@ -26,17 +26,11 @@ function App() {
 
   // Multi-workspace state from useProcesses
   const {
-    frameworkPath,
-    projectPaths,
-    isWatching,
     processes,
     activeProcesses,
     completedProcesses,
     failedProcesses,
     selectFolder,
-    addFolder,
-    removeProject,
-    setFrameworkPath,
     getProcess,
     error,
     processErrors,
@@ -48,7 +42,7 @@ function App() {
 
   // Lift templates to App level so Dashboard and Templates page can both access them
   // Templates now load from framework + all project folders
-  const { processTemplates } = useTemplates(frameworkPath, projectPaths)
+  const { processTemplates } = useTemplates()
 
   // Track running agent sessions for the sidebar badge + external session discovery
   const {
@@ -109,9 +103,9 @@ function App() {
   // Handle session migration from Dashboard
   const handleMigrateSession = useCallback((processPath: string) => {
     const full = getProcess(processPath)
-    const workDir = full?.metadata?.projectPaths?.[0] || full?.metadata?.projectPath || projectPaths[0] || ''
+    const workDir = full?.metadata?.projectPaths?.[0] || full?.metadata?.projectPath || ''
     migrateSession(processPath, workDir, { permissionMode: settingsState.settings.agent.permissionMode })
-  }, [getProcess, projectPaths, migrateSession, settingsState.settings.agent.permissionMode])
+  }, [getProcess, migrateSession, settingsState.settings.agent.permissionMode])
 
   const [currentView, setCurrentView] = useState<AppView>('dashboard')
   const [selectedProcessPath, setSelectedProcessPath] = useState<string | null>(null)
@@ -184,8 +178,8 @@ function App() {
   }, [])
 
   const handlePopOutOverview = useCallback(() => {
-    window.electronAPI.openOverviewWindow(projectPaths)
-  }, [projectPaths])
+    window.electronAPI.openOverviewWindow()
+  }, [])
 
   // New Process Modal handlers
   const handleOpenNewProcess = useCallback(() => {
@@ -238,11 +232,6 @@ function App() {
         <div className="h-screen flex bg-background text-text-primary">
         {/* Sidebar */}
         <Sidebar
-          frameworkPath={frameworkPath}
-          projectPaths={projectPaths}
-          isWatching={isWatching}
-          onAddFolder={addFolder}
-          onSelectFolder={selectFolder}
           processCount={processes.length}
           activeCount={activeProcesses.length}
           runningSessionCount={runningSessionCount}
@@ -272,18 +261,11 @@ function App() {
         <div className="flex-1 flex overflow-hidden">
           <ErrorBoundary>
             {currentView === 'settings' ? (
-              <Settings 
+              <Settings
                 onBack={handleNavigateToDashboard}
-                frameworkPath={frameworkPath}
-                projectPaths={projectPaths}
-                onSelectFolder={selectFolder}
-                onRemoveProject={removeProject}
-                onChangeFramework={selectFolder}
               />
             ) : currentView === 'templates' ? (
               <Templates
-                frameworkPath={frameworkPath}
-                projectPaths={projectPaths}
                 onBack={handleNavigateToDashboard}
                 onUseTemplate={handleUseTemplate}
                 initialSelectedTemplate={initialSelectedTemplate}
@@ -309,10 +291,7 @@ function App() {
             ) : error ? (
               <ErrorDisplay
                 error={error}
-                projectPaths={projectPaths}
                 onRetry={retryWatching}
-                onAddFolder={addFolder}
-                onSelectFolder={selectFolder}
               />
             ) : selectedProcess ? (
               <DiagramView
@@ -325,7 +304,7 @@ function App() {
                 navigatedFromPath={navigatedFromPath}
                 externalSession={selectedProcessPath ? externalSessions[selectedProcessPath] || null : null}
                 onMigrateSession={selectedProcessPath && externalSessions[selectedProcessPath]
-                  ? async () => { await migrateSession(selectedProcessPath, selectedProcess.metadata.projectPaths?.[0] || selectedProcess.metadata.projectPath || projectPaths[0] || '', { permissionMode: settingsState.settings.agent.permissionMode }) }
+                  ? async () => { await migrateSession(selectedProcessPath, selectedProcess.metadata.projectPaths?.[0] || selectedProcess.metadata.projectPath || '', { permissionMode: settingsState.settings.agent.permissionMode }) }
                   : undefined
                 }
                 onNavigateToTemplate={handleNavigateToTemplate}
@@ -355,11 +334,9 @@ function App() {
           isOpen={showNewProcessModal}
           onClose={handleCloseNewProcessModal}
           templates={processTemplates}
-          projectPaths={projectPaths}
           agentSettings={settingsState.settings.agent}
           preSelectedTemplate={preSelectedTemplate}
           onSelectFolder={selectFolder}
-          onAddFolder={addFolder}
         />
         </div>
       </SettingsContext.Provider>

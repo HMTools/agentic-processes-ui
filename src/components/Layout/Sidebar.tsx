@@ -1,14 +1,4 @@
 interface SidebarProps {
-  /** Path to the framework folder (agentic-processes) */
-  frameworkPath: string | null
-  /** Paths to project folders being watched */
-  projectPaths: string[]
-  /** Whether at least one watcher is active */
-  isWatching: boolean
-  /** Add a folder (auto-detects type) */
-  onAddFolder: (path: string) => Promise<void>
-  /** Opens folder picker dialog */
-  onSelectFolder: () => void
   processCount: number
   activeCount: number
   runningSessionCount?: number
@@ -21,12 +11,7 @@ interface SidebarProps {
   attentionCount?: number
 }
 
-export function Sidebar({ 
-  frameworkPath,
-  projectPaths,
-  isWatching, 
-  onAddFolder,
-  onSelectFolder, 
+export function Sidebar({
   processCount,
   activeCount,
   runningSessionCount = 0,
@@ -38,30 +23,6 @@ export function Sidebar({
   onNavigateToProcessesOverview,
   attentionCount = 0
 }: SidebarProps) {
-  const hasWorkspace = Boolean(frameworkPath) || projectPaths.length > 0
-
-  // Compute workspace status
-  const workspaceStatus = (() => {
-    if (!hasWorkspace) return 'none'
-    if (isWatching) return 'watching'
-    return 'configured'
-  })()
-
-  // Build tooltip text
-  const workspaceTooltip = (() => {
-    const lines: string[] = []
-    if (frameworkPath) {
-      lines.push(`Framework: ${frameworkPath}`)
-    }
-    if (projectPaths.length > 0) {
-      lines.push(`Projects (${projectPaths.length}):`)
-      projectPaths.forEach(p => lines.push(`  • ${p}`))
-    }
-    if (lines.length === 0) {
-      lines.push('Add a folder to get started')
-    }
-    return lines.join('\n')
-  })()
 
   return (
     <div className="w-16 bg-surface border-r border-border flex flex-col items-center py-4">
@@ -130,7 +91,7 @@ export function Sidebar({
         <NavButton
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
@@ -139,25 +100,6 @@ export function Sidebar({
           active={currentView === 'settings'}
           onClick={onNavigateToSettings}
         />
-        
-        {/* Workspace folder button */}
-        <div className="relative">
-          <button
-            onClick={onSelectFolder}
-            className="p-2 rounded-lg hover:bg-surface-elevated transition-colors group"
-            title={workspaceTooltip}
-          >
-            <svg className="w-5 h-5 text-text-secondary group-hover:text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-            </svg>
-          </button>
-          {/* Workspace status dot */}
-          <span className={`
-            absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface
-            ${workspaceStatus === 'watching' ? 'bg-status-completed' : workspaceStatus === 'configured' ? 'bg-status-paused' : 'bg-status-pending'}
-          `} />
-        </div>
       </div>
     </div>
   )

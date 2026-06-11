@@ -1,11 +1,13 @@
 import { useState, useCallback } from 'react'
-import type { ProcessMemory, MemoryTopicFile, MemoryTopicEntry, ProcessFile } from '../../types'
+import type { ProcessInstance, ProcessMemory, MemoryTopicFile, MemoryTopicEntry, ProcessFile } from '../../types'
 import { FileContentModal } from '../FileContentModal'
+import { MemoryExplorerModal } from './MemoryExplorerModal'
 
 interface MemoryViewProps {
   memory: ProcessMemory | null
   loading?: boolean
   processPath?: string
+  process?: ProcessInstance
 }
 
 /**
@@ -64,8 +66,9 @@ function getFileName(filePath: string): string {
   return parts[parts.length - 1] || filePath
 }
 
-export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
+export function MemoryView({ memory, loading, processPath, process }: MemoryViewProps) {
   const [selectedFile, setSelectedFile] = useState<ProcessFile | null>(null)
+  const [showExplorer, setShowExplorer] = useState(false)
 
   const handleFileClick = useCallback((fileEntry: string) => {
     if (!processPath) return
@@ -120,6 +123,22 @@ export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
   return (
     <div className="h-full overflow-auto p-4">
       <div className="space-y-6">
+        {/* Open Memory Explorer button */}
+        {process && (
+          <div className="pb-1">
+            <button
+              onClick={() => setShowExplorer(true)}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-surface-elevated hover:bg-surface-hover border border-border text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+              <span>Open Memory Explorer</span>
+            </button>
+          </div>
+        )}
+
         {/* Cross References - Key Decisions */}
         {crossRefs?.keyDecisions?.length > 0 && (
           <section>
@@ -208,6 +227,16 @@ export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
           onClose={() => setSelectedFile(null)}
         />
       )}
+
+      {/* Memory Explorer Modal */}
+      {process && (
+        <MemoryExplorerModal
+          isOpen={showExplorer}
+          onClose={() => setShowExplorer(false)}
+          process={process}
+          memory={memory}
+        />
+      )}
     </div>
   )
 }
@@ -215,6 +244,16 @@ export function MemoryView({ memory, loading, processPath }: MemoryViewProps) {
 function TopicCard({ topicName, topicFile, onFileClick }: { topicName: string; topicFile: MemoryTopicFile; onFileClick: (file: string) => void }) {
   const [collapsed, setCollapsed] = useState(false)
   const entries = Object.entries(topicFile.entries || {})
+
+  // Find the step that last modified this topic
+  const lastModifiedEntry = entries.reduce<[string, MemoryTopicEntry] | null>((latest, [sid, e]) => {
+    const entry = e as MemoryTopicEntry
+    if (!latest) return [sid, entry]
+    const latestTime = latest[1].updatedAt || ''
+    const currentTime = entry.updatedAt || ''
+    return currentTime > latestTime ? [sid, entry] : latest
+  }, null)
+  const lastModifiedStepName = lastModifiedEntry ? lastModifiedEntry[1].stepName : null
 
   return (
     <div className="bg-surface rounded-lg border border-border overflow-hidden">
@@ -229,9 +268,16 @@ function TopicCard({ topicName, topicFile, onFileClick }: { topicName: string; t
           <span className="text-xs font-mono text-accent">{topicName}.json</span>
           <span className="text-xs text-text-muted">({entries.length} {entries.length === 1 ? 'entry' : 'entries'})</span>
         </div>
-        {topicFile.lastUpdated && (
-          <span className="text-xs text-text-muted">{new Date(topicFile.lastUpdated).toLocaleString()}</span>
-        )}
+        <div className="flex items-center gap-2">
+          {lastModifiedStepName && (
+            <span className="text-xs text-accent truncate max-w-[140px]" title={`Last modified by: ${lastModifiedStepName}`}>
+              {lastModifiedStepName}
+            </span>
+          )}
+          {topicFile.lastUpdated && (
+            <span className="text-xs text-text-muted">{new Date(topicFile.lastUpdated).toLocaleString()}</span>
+          )}
+        </div>
       </button>
 
       {!collapsed && (
@@ -240,6 +286,31 @@ function TopicCard({ topicName, topicFile, onFileClick }: { topicName: string; t
             <TopicEntryCard key={stepId} stepId={stepId} entry={entry as MemoryTopicEntry} onFileClick={onFileClick} />
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+function InformationSection({ informationProduced }: { informationProduced: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false)
+  const fullText = JSON.stringify(informationProduced, null, 2)
+  const isLong = fullText.length > 500
+
+  return (
+    <div>
+      <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Information</label>
+      <div className="text-xs text-text-muted bg-background rounded p-2 font-mono overflow-x-auto">
+        <pre className="whitespace-pre-wrap break-all">
+          {expanded || !isLong ? fullText : fullText.slice(0, 500) + '...'}
+        </pre>
+      </div>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-accent hover:text-accent-hover mt-1"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
       )}
     </div>
   )
@@ -291,17 +362,9 @@ function TopicEntryCard({ stepId, entry, onFileClick }: { stepId: string; entry:
         </div>
       )}
 
-      {/* Information Produced Preview */}
+      {/* Information Produced - with expand/collapse */}
       {entry.informationProduced && Object.keys(entry.informationProduced).length > 0 && (
-        <div>
-          <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Information</label>
-          <div className="text-xs text-text-muted bg-background rounded p-2 font-mono overflow-x-auto">
-            <pre className="whitespace-pre-wrap break-all">
-              {JSON.stringify(entry.informationProduced, null, 2).slice(0, 500)}
-              {JSON.stringify(entry.informationProduced, null, 2).length > 500 && '...'}
-            </pre>
-          </div>
-        </div>
+        <InformationSection informationProduced={entry.informationProduced} />
       )}
     </div>
   )

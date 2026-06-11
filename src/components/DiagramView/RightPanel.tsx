@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import type { ProcessMemory, ProcessLog, QASessionFile, FileChange } from '../../types'
+import type { ProcessInstance, ProcessMemory, ProcessLog, QASessionFile, FileChange } from '../../types'
 import { MemoryView } from './MemoryView'
 import { LogsView } from './LogsView'
 import { FilesView } from './FilesView'
@@ -16,13 +16,14 @@ interface RightPanelProps {
   processPath: string
   onQASessionUpdate: () => void
   filesChanged: FileChange[]
+  process?: ProcessInstance
 }
 
 const MIN_WIDTH = 280
 const MAX_WIDTH = 800
 const DEFAULT_WIDTH = 384
 
-export function RightPanel({ memory, log, qaSession, memoryLoading, logLoading, processPath, onQASessionUpdate, filesChanged }: RightPanelProps) {
+export function RightPanel({ memory, log, qaSession, memoryLoading, logLoading, processPath, onQASessionUpdate, filesChanged, process }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>('memory')
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -187,7 +188,7 @@ export function RightPanel({ memory, log, qaSession, memoryLoading, logLoading, 
       {!isCollapsed && (
         <div className="flex-1 overflow-hidden">
           {activeTab === 'memory' && (
-            <MemoryView memory={memory} loading={memoryLoading} processPath={processPath} />
+            <MemoryView memory={memory} loading={memoryLoading} processPath={processPath} process={process} />
           )}
           {activeTab === 'logs' && (
             <LogsView log={log} loading={logLoading} />

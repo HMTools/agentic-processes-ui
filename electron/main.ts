@@ -36,7 +36,6 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
-let currentProjectPath: string | null = null
 let fileContentWatchers: Map<string, FSWatcher> = new Map()
 let agentManagerInitialized = false
 let terminalWindows: Map<string, BrowserWindow> = new Map()
@@ -148,21 +147,11 @@ ipcMain.handle('select-project-folder', async () => {
     properties: ['openDirectory'],
     title: 'Select Project Folder'
   })
-  
+
   if (!result.canceled && result.filePaths.length > 0) {
-    currentProjectPath = result.filePaths[0]
-    return currentProjectPath
+    return result.filePaths[0]
   }
   return null
-})
-
-ipcMain.handle('get-current-project', () => {
-  return currentProjectPath
-})
-
-ipcMain.handle('set-project-path', (_event, path: string) => {
-  currentProjectPath = path
-  return true
 })
 
 ipcMain.handle('start-watching', async (_event, projectPath: string) => {
@@ -1138,7 +1127,7 @@ ipcMain.handle('channel:check-health', async (_event, port: number) => {
 // Overview Window IPC Handlers
 // ============================================================================
 
-function createOverviewWindow(projectPaths: string[]) {
+function createOverviewWindow() {
   const existing = overviewWindows.get('default')
   if (existing && !existing.isDestroyed()) {
     existing.focus()
@@ -1162,14 +1151,10 @@ function createOverviewWindow(projectPaths: string[]) {
 
   overviewWin.setMenuBarVisibility(false)
 
-  const queryParams = `?projectPaths=${encodeURIComponent(JSON.stringify(projectPaths))}`
-
   if (process.env.VITE_DEV_SERVER_URL) {
-    overviewWin.loadURL(`${process.env.VITE_DEV_SERVER_URL}overview-window.html${queryParams}`)
+    overviewWin.loadURL(`${process.env.VITE_DEV_SERVER_URL}overview-window.html`)
   } else {
-    overviewWin.loadFile(join(__dirname, '../dist/overview-window.html'), {
-      search: queryParams
-    })
+    overviewWin.loadFile(join(__dirname, '../dist/overview-window.html'))
   }
 
   overviewWindows.set('default', overviewWin)
@@ -1179,9 +1164,9 @@ function createOverviewWindow(projectPaths: string[]) {
   })
 }
 
-ipcMain.handle('overview:open-window', (_event, projectPaths: string[]) => {
+ipcMain.handle('overview:open-window', () => {
   try {
-    createOverviewWindow(projectPaths)
+    createOverviewWindow()
     return { success: true }
   } catch (error) {
     console.error('Error opening overview window:', error)
@@ -1192,20 +1177,8 @@ ipcMain.handle('overview:open-window', (_event, projectPaths: string[]) => {
   }
 })
 
-ipcMain.handle('overview:get-window-params', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender)
-  if (!win) return null
-
-  try {
-    const url = win.webContents.getURL()
-    const urlObj = new URL(url)
-    const projectPathsParam = urlObj.searchParams.get('projectPaths')
-    return {
-      projectPaths: projectPathsParam ? JSON.parse(projectPathsParam) : []
-    }
-  } catch {
-    return null
-  }
+ipcMain.handle('overview:get-window-params', () => {
+  return null
 })
 
 ipcMain.handle('overview:get-current-processes', () => {

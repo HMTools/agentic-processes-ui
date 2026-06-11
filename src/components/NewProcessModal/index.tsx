@@ -9,39 +9,30 @@ import { useFavoriteTemplates } from '../../hooks/useFavoriteTemplates'
 
 const FAVORITES_FILTER = '__favorites__'
 
-type ModalStep = 'select-template' | 'select-project' | 'write-prompt'
+type ModalStep = 'select-template' | 'write-prompt'
 type CreationStatus = 'idle' | 'creating' | 'sending' | 'done' | 'error'
 
 interface NewProcessModalProps {
   isOpen: boolean
   onClose: () => void
   templates: ProcessTemplate[]
-  /** Array of project paths where processes can be created */
-  projectPaths: string[]
   agentSettings: AgentSettings
   /** Pre-selected template (e.g. from Templates page "Use Template" button) */
   preSelectedTemplate?: ProcessTemplate | null
   /** Opens folder picker dialog and returns selected path */
   onSelectFolder?: () => Promise<string | null>
-  /** Add a folder as a project working directory */
-  onAddFolder?: (path: string) => Promise<void>
 }
 
 export function NewProcessModal({
   isOpen,
   onClose,
   templates,
-  projectPaths,
   agentSettings,
   preSelectedTemplate,
-  onSelectFolder,
-  onAddFolder
+  onSelectFolder
 }: NewProcessModalProps) {
-  // Step management - skip project selection if only one project
-  const needsProjectSelection = projectPaths.length > 1
-
   const [step, setStep] = useState<ModalStep>(
-    preSelectedTemplate ? (needsProjectSelection ? 'select-project' : 'write-prompt') : 'select-template'
+    preSelectedTemplate ? 'write-prompt' : 'select-template'
   )
 
   // Template selection
@@ -51,10 +42,8 @@ export function NewProcessModal({
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
 
-  // Project selection (for multi-project workspaces)
-  const [selectedProjectPath, setSelectedProjectPath] = useState<string>(
-    projectPaths.length === 1 ? projectPaths[0] : ''
-  )
+  // Working directory (selected via inline folder picker)
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string>('')
 
   // Prompt text
   const [promptText, setPromptText] = useState<string>('')
@@ -68,20 +57,19 @@ export function NewProcessModal({
     if (isOpen) {
       if (preSelectedTemplate) {
         setSelectedTemplate(preSelectedTemplate)
-        setStep(needsProjectSelection ? 'select-project' : 'write-prompt')
+        setStep('write-prompt')
       } else {
         setSelectedTemplate(null)
         setStep('select-template')
       }
       setSearchQuery('')
       setCategoryFilter(null)
-      // Auto-select if only one project
-      setSelectedProjectPath(projectPaths.length === 1 ? projectPaths[0] : '')
+      setSelectedProjectPath('')
       setPromptText('')
       setCreationStatus('idle')
       setCreationError(null)
     }
-  }, [isOpen, preSelectedTemplate, needsProjectSelection, projectPaths])
+  }, [isOpen, preSelectedTemplate])
 
   // Categories from available templates
   const categories = useMemo(() => {
@@ -114,38 +102,23 @@ export function NewProcessModal({
     })
   }, [templates, effectiveCategoryFilter, searchQuery, isFavorite, showingFavorites])
 
-  // Select a template and move to next step
+  // Select a template and move to prompt step
   const handleSelectTemplate = useCallback((template: ProcessTemplate) => {
     setSelectedTemplate(template)
     setPromptText('')
-    // If multiple projects, go to project selection; otherwise straight to prompt
-    setStep(needsProjectSelection ? 'select-project' : 'write-prompt')
-  }, [needsProjectSelection])
-
-  // Select a project and move to prompt step
-  const handleSelectProject = useCallback((path: string) => {
-    setSelectedProjectPath(path)
     setStep('write-prompt')
   }, [])
 
   // Go back one step
   const handleBack = useCallback(() => {
     if (step === 'write-prompt') {
-      if (needsProjectSelection) {
-        setStep('select-project')
-      } else if (preSelectedTemplate) {
-        onClose()
-      } else {
-        setStep('select-template')
-      }
-    } else if (step === 'select-project') {
       if (preSelectedTemplate) {
         onClose()
       } else {
         setStep('select-template')
       }
     }
-  }, [step, preSelectedTemplate, onClose, needsProjectSelection])
+  }, [step, preSelectedTemplate, onClose])
 
   // Generate preview command
   const previewCommand = useMemo(() => {
@@ -182,53 +155,11 @@ export function NewProcessModal({
     }
   }, [selectedTemplate, promptText, selectedProjectPath, agentSettings])
 
-  // No projects configured
   if (!isOpen) return null
 
-  if (projectPaths.length === 0) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center">
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-        <div className="relative w-full max-w-md bg-background border border-border rounded-xl shadow-2xl p-6">
-          <div className="text-center">
-            <div className="w-12 h-12 rounded-full bg-status-paused/20 flex items-center justify-center mx-auto mb-4">
-              <svg className="w-6 h-6 text-status-paused" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-text-primary mb-2">No Project Folder</h3>
-            <p className="text-sm text-text-muted mb-6">
-              Add a project folder to create processes. This folder is used as the working directory for agent sessions.
-            </p>
-            <div className="flex gap-3 justify-center">
-              {onSelectFolder && onAddFolder && (
-                <button
-                  onClick={async () => {
-                    const path = await onSelectFolder()
-                    if (path) await onAddFolder(path)
-                  }}
-                  className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-background hover:bg-accent/90 transition-colors"
-                >
-                  Add Project Folder
-                </button>
-              )}
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-surface transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Compute total steps for indicator
-  const totalSteps = needsProjectSelection ? 3 : 2
-  const currentStepNum = step === 'select-template' ? 1 : step === 'select-project' ? 2 : (needsProjectSelection ? 3 : 2)
+  // Always 2 steps: template selection -> prompt
+  const totalSteps = 2
+  const currentStepNum = step === 'select-template' ? 1 : 2
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -253,12 +184,10 @@ export function NewProcessModal({
             <div>
               <h2 className="text-base font-semibold text-text-primary">
                 {step === 'select-template' && 'New Process'}
-                {step === 'select-project' && 'Select Project'}
                 {step === 'write-prompt' && 'Describe What You Want'}
               </h2>
               <p className="text-xs text-text-muted">
                 {step === 'select-template' && 'Select a template to start a new process'}
-                {step === 'select-project' && 'Choose which project to create the process in'}
                 {step === 'write-prompt' && selectedTemplate?.metadata.title}
               </p>
             </div>
@@ -269,13 +198,7 @@ export function NewProcessModal({
             <div className="flex items-center gap-1.5">
               <StepDot active={step === 'select-template'} completed={currentStepNum > 1} label="1" />
               <div className="w-6 h-px bg-border" />
-              {needsProjectSelection && (
-                <>
-                  <StepDot active={step === 'select-project'} completed={currentStepNum > 2} label="2" />
-                  <div className="w-6 h-px bg-border" />
-                </>
-              )}
-              <StepDot active={step === 'write-prompt'} completed={false} label={String(totalSteps)} />
+              <StepDot active={step === 'write-prompt'} completed={false} label="2" />
             </div>
             <button
               onClick={onClose}
@@ -305,14 +228,6 @@ export function NewProcessModal({
             />
           )}
 
-          {step === 'select-project' && (
-            <ProjectSelectionStep
-              projectPaths={projectPaths}
-              selectedPath={selectedProjectPath}
-              onSelect={handleSelectProject}
-            />
-          )}
-
           {step === 'write-prompt' && selectedTemplate && (
             <PromptStep
               template={selectedTemplate}
@@ -322,6 +237,8 @@ export function NewProcessModal({
               status={creationStatus}
               error={creationError}
               selectedProjectPath={selectedProjectPath}
+              onSelectFolder={onSelectFolder}
+              onProjectPathChange={setSelectedProjectPath}
             />
           )}
         </div>
@@ -563,70 +480,6 @@ function TemplateSelectionStep({
 }
 
 // ============================================================================
-// Project Selection Step (for multi-project workspaces)
-// ============================================================================
-
-interface ProjectSelectionStepProps {
-  projectPaths: string[]
-  selectedPath: string
-  onSelect: (path: string) => void
-}
-
-function ProjectSelectionStep({ projectPaths, selectedPath, onSelect }: ProjectSelectionStepProps) {
-  // Extract folder name from path
-  const getFolderName = (path: string) => {
-    const parts = path.replace(/\\/g, '/').split('/')
-    return parts[parts.length - 1] || path
-  }
-
-  return (
-    <div className="p-6">
-      <p className="text-sm text-text-muted mb-4">
-        Select which project folder to create the process in:
-      </p>
-      <div className="space-y-2">
-        {projectPaths.map((path) => (
-          <button
-            key={path}
-            onClick={() => onSelect(path)}
-            className={`
-              w-full text-left p-4 rounded-lg border transition-all group
-              ${selectedPath === path 
-                ? 'border-accent bg-accent/10' 
-                : 'border-border hover:border-accent/50 hover:bg-surface-elevated'
-              }
-            `}
-          >
-            <div className="flex items-center gap-3">
-              <div className={`
-                p-2 rounded-lg transition-colors
-                ${selectedPath === path ? 'bg-accent/20 text-accent' : 'bg-surface text-text-muted group-hover:text-text-primary'}
-              `}>
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                </svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className={`text-sm font-medium ${selectedPath === path ? 'text-accent' : 'text-text-primary'}`}>
-                  {getFolderName(path)}
-                </div>
-                <div className="text-xs text-text-muted truncate">{path}</div>
-              </div>
-              {selectedPath === path && (
-                <svg className="w-5 h-5 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              )}
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ============================================================================
 // Prompt Step
 // ============================================================================
 
@@ -638,14 +491,24 @@ interface PromptStepProps {
   status: CreationStatus
   error: string | null
   selectedProjectPath: string
+  onSelectFolder?: () => Promise<string | null>
+  onProjectPathChange: (path: string) => void
 }
 
-function PromptStep({ template, promptText, onPromptChange, previewCommand, status, error, selectedProjectPath }: PromptStepProps) {
+function PromptStep({ template, promptText, onPromptChange, previewCommand, status, error, selectedProjectPath, onSelectFolder, onProjectPathChange }: PromptStepProps) {
   // Extract folder name from path
   const getFolderName = (path: string) => {
     const parts = path.replace(/\\/g, '/').split('/')
     return parts[parts.length - 1] || path
   }
+
+  const handleBrowse = useCallback(async () => {
+    if (!onSelectFolder) return
+    const path = await onSelectFolder()
+    if (path) {
+      onProjectPathChange(path)
+    }
+  }, [onSelectFolder, onProjectPathChange])
 
   return (
     <div className="p-6 space-y-5">
@@ -662,16 +525,40 @@ function PromptStep({ template, promptText, onPromptChange, previewCommand, stat
         </div>
       </div>
 
-      {/* Selected project indicator */}
-      {selectedProjectPath && (
-        <div className="flex items-center gap-2 text-xs text-text-muted">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-              d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-          </svg>
-          <span>Creating in: <span className="text-text-secondary font-medium">{getFolderName(selectedProjectPath)}</span></span>
+      {/* Working directory picker */}
+      <div>
+        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wide mb-2">
+          Working Directory
+        </h4>
+        <div className="flex items-center gap-2">
+          {selectedProjectPath ? (
+            <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-surface border border-border rounded-lg">
+              <svg className="w-4 h-4 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+              <span className="text-sm text-text-secondary font-mono truncate">{selectedProjectPath}</span>
+            </div>
+          ) : (
+            <div className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-muted">
+              No folder selected
+            </div>
+          )}
+          <button
+            onClick={handleBrowse}
+            className="px-3 py-2 text-sm font-medium rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors flex items-center gap-1.5 flex-shrink-0"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+            Browse...
+          </button>
         </div>
-      )}
+        <p className="text-xs text-text-muted mt-1">
+          The folder where the agent session will run.
+        </p>
+      </div>
 
       {/* Prompt textarea */}
       <div>
