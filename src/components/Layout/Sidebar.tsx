@@ -2,12 +2,15 @@ interface SidebarProps {
   processCount: number
   activeCount: number
   runningSessionCount?: number
-  currentView: 'dashboard' | 'settings' | 'templates' | 'agent-sessions' | 'processes-overview'
+  currentView: 'dashboard' | 'settings' | 'templates' | 'agent-sessions' | 'processes-overview' | 'marketplace'
   onNavigateToSettings: () => void
   onNavigateToDashboard: () => void
   onNavigateToTemplates: () => void
   onNavigateToAgentSessions: () => void
+  onNavigateToMarketplace: () => void
   onNavigateToProcessesOverview: () => void
+  marketplaceUpdatesCount?: number
+  marketplaceCatalogLoading?: boolean
   attentionCount?: number
 }
 
@@ -20,7 +23,10 @@ export function Sidebar({
   onNavigateToDashboard,
   onNavigateToTemplates,
   onNavigateToAgentSessions,
+  onNavigateToMarketplace,
   onNavigateToProcessesOverview,
+  marketplaceUpdatesCount = 0,
+  marketplaceCatalogLoading = false,
   attentionCount = 0
 }: SidebarProps) {
 
@@ -71,10 +77,23 @@ export function Sidebar({
           active={currentView === 'templates'}
           onClick={onNavigateToTemplates}
         />
-        <NavButton 
+        <NavButton
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </svg>
+          }
+          label="Marketplace"
+          active={currentView === 'marketplace'}
+          onClick={onNavigateToMarketplace}
+          badge={marketplaceCatalogLoading ? undefined : (marketplaceUpdatesCount > 0 ? marketplaceUpdatesCount : undefined)}
+          loading={marketplaceCatalogLoading}
+        />
+        <NavButton
+          icon={
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
           }
@@ -110,28 +129,33 @@ interface NavButtonProps {
   label: string
   active?: boolean
   badge?: number
+  loading?: boolean
   onClick?: () => void
 }
 
-function NavButton({ icon, label, active, badge, onClick }: NavButtonProps) {
+function NavButton({ icon, label, active, badge, loading, onClick }: NavButtonProps) {
   return (
     <button
       onClick={onClick}
       className={`
         relative p-2 rounded-lg transition-colors
-        ${active 
-          ? 'bg-accent/20 text-accent' 
+        ${active
+          ? 'bg-accent/20 text-accent'
           : 'text-text-secondary hover:text-text-primary hover:bg-surface-elevated'
         }
       `}
       title={label}
     >
       {icon}
-      {badge !== undefined && (
+      {loading ? (
+        <span className="absolute -top-1 -right-1 w-[18px] h-[18px] flex items-center justify-center">
+          <span className="w-2.5 h-2.5 rounded-full bg-accent/60 animate-pulse" />
+        </span>
+      ) : badge !== undefined ? (
         <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] font-medium rounded-full bg-accent text-background flex items-center justify-center">
           {badge}
         </span>
-      )}
+      ) : null}
     </button>
   )
 }

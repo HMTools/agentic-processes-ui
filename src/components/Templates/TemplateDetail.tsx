@@ -1,7 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import mermaid from 'mermaid'
+import { useState, useMemo } from 'react'
 import type { ProcessTemplate, StepTemplate } from '../../types'
 import { formatCategoryName, getStepRefDisplayName, extractTemplateMemoryFlow } from '../../services/templatesService'
 import { MemoryFlowTable } from './MemoryFlowTable'
@@ -20,31 +17,6 @@ export function toDisplayText(value: unknown): string {
   return String(value)
 }
 
-// Initialize mermaid with dark theme
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'dark',
-  themeVariables: {
-    primaryColor: '#3b82f6',
-    primaryTextColor: '#e5e7eb',
-    primaryBorderColor: '#4b5563',
-    lineColor: '#6b7280',
-    secondaryColor: '#1f2937',
-    tertiaryColor: '#374151',
-    background: '#111827',
-    mainBkg: '#1f2937',
-    nodeBorder: '#4b5563',
-    clusterBkg: '#1f2937',
-    clusterBorder: '#4b5563',
-    titleColor: '#e5e7eb',
-    edgeLabelBackground: '#1f2937',
-  },
-  flowchart: {
-    htmlLabels: true,
-    curve: 'basis',
-  },
-})
-
 interface TemplateDetailProps {
   template: ProcessTemplate | StepTemplate
   templateType: 'process' | 'step'
@@ -59,10 +31,10 @@ interface TemplateDetailProps {
   highlightedStepIndex?: number | null
 }
 
-type ViewMode = 'markdown' | 'formatted' | 'json'
+type ViewMode = 'formatted' | 'json'
 
 export function TemplateDetail({ template, templateType, onClose, onUseTemplate, expandedStepIndex, onStepClick, onSubProcessClick, parentTemplateName, parentStepName, onNavigateBack, highlightedStepIndex }: TemplateDetailProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>('markdown')
+  const [viewMode, setViewMode] = useState<ViewMode>('formatted')
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -131,16 +103,6 @@ export function TemplateDetail({ template, templateType, onClose, onUseTemplate,
         {/* View mode toggle */}
         <div className="flex gap-1 bg-surface rounded-md p-0.5">
           <button
-            onClick={() => setViewMode('markdown')}
-            className={`flex-1 px-3 py-1 text-xs font-medium rounded transition-colors ${
-              viewMode === 'markdown' 
-                ? 'bg-accent text-background' 
-                : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            Markdown
-          </button>
-          <button
             onClick={() => setViewMode('formatted')}
             className={`flex-1 px-3 py-1 text-xs font-medium rounded transition-colors ${
               viewMode === 'formatted' 
@@ -165,9 +127,7 @@ export function TemplateDetail({ template, templateType, onClose, onUseTemplate,
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {viewMode === 'markdown' ? (
-          <MarkdownView template={template} />
-        ) : viewMode === 'json' ? (
+        {viewMode === 'json' ? (
           <JsonView template={template} />
         ) : templateType === 'process' ? (
           <ProcessTemplateView template={template as ProcessTemplate} expandedStepIndex={expandedStepIndex} onStepClick={onStepClick} onSubProcessClick={onSubProcessClick} highlightedStepIndex={highlightedStepIndex} />
@@ -179,168 +139,11 @@ export function TemplateDetail({ template, templateType, onClose, onUseTemplate,
   )
 }
 
-// Markdown view component
-function MarkdownView({ template }: { template: ProcessTemplate | StepTemplate }) {
-  if (!template.markdownContent) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 text-center">
-        <svg className="w-12 h-12 text-text-muted mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
-            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        <p className="text-sm text-text-muted">No markdown documentation available</p>
-        <p className="text-xs text-text-muted mt-1">Switch to Formatted or JSON view to see template details</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="prose prose-sm max-w-none
-      prose-headings:text-text-primary prose-headings:font-semibold
-      prose-h1:text-lg prose-h1:border-b prose-h1:border-border prose-h1:pb-2 prose-h1:mb-4
-      prose-h2:text-base prose-h2:mt-6 prose-h2:mb-3
-      prose-h3:text-sm prose-h3:mt-4 prose-h3:mb-2
-      prose-p:text-text-secondary prose-p:text-sm prose-p:leading-relaxed
-      prose-a:text-accent prose-a:no-underline hover:prose-a:underline
-      prose-strong:text-text-primary prose-strong:font-semibold
-      prose-code:text-accent prose-code:bg-surface prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-      prose-pre:bg-surface prose-pre:rounded-lg prose-pre:p-4
-      prose-ul:text-text-secondary prose-ul:text-sm
-      prose-ol:text-text-secondary prose-ol:text-sm
-      prose-li:text-text-secondary prose-li:my-1
-      prose-blockquote:border-l-accent prose-blockquote:text-text-muted prose-blockquote:italic
-      prose-hr:border-border
-    ">
-      <ReactMarkdown 
-        remarkPlugins={[remarkGfm]}
-        components={{
-          code: ({ className, children, ...props }: { className?: string; children?: React.ReactNode }) => {
-            const match = /language-(\w+)/.exec(className || '')
-            const language = match ? match[1] : ''
-            const codeContent = String(children).replace(/\n$/, '')
-            
-            // Handle mermaid diagrams
-            if (language === 'mermaid') {
-              return <MermaidDiagram chart={codeContent} />
-            }
-            
-            // Regular code blocks (detected by having a language)
-            if (language) {
-              return (
-                <div className="my-4 rounded-lg border border-border overflow-hidden not-prose">
-                  <div className="px-3 py-1.5 bg-surface-elevated border-b border-border text-xs text-text-muted font-mono">
-                    {language}
-                  </div>
-                  <pre className="bg-surface p-4 overflow-x-auto">
-                    <code className="text-xs font-mono text-text-secondary leading-relaxed" {...props}>
-                      {children}
-                    </code>
-                  </pre>
-                </div>
-              )
-            }
-            
-            if (codeContent.includes('\n')) {
-              return (
-                <div className="my-4 rounded-lg border border-border overflow-hidden not-prose">
-                  <pre className="bg-surface p-4 overflow-x-auto">
-                    <code className="text-xs font-mono text-text-secondary leading-relaxed" {...props}>
-                      {children}
-                    </code>
-                  </pre>
-                </div>
-              )
-            }
-
-            // Inline code
-            return (
-              <code className="text-accent bg-surface/80 px-1.5 py-0.5 rounded text-xs font-mono border border-border/50" {...props}>
-                {children}
-              </code>
-            )
-          },
-          pre: ({ children }: { children?: React.ReactNode }) => {
-            // Just pass through - let the code component handle styling
-            return <>{children}</>
-          },
-        }}
-      >
-        {template.markdownContent}
-      </ReactMarkdown>
-    </div>
-  )
-}
-
-// Mermaid diagram component
-function MermaidDiagram({ chart }: { chart: string }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [svg, setSvg] = useState<string>('')
-  const [error, setError] = useState<string | null>(null)
-  const idRef = useRef(`mermaid-${Math.random().toString(36).substr(2, 9)}`)
-
-  useEffect(() => {
-    const renderDiagram = async () => {
-      if (!chart.trim()) return
-      
-      try {
-        setError(null)
-        const { svg: renderedSvg } = await mermaid.render(idRef.current, chart)
-        setSvg(renderedSvg)
-      } catch (err) {
-        console.error('Mermaid rendering error:', err)
-        setError(err instanceof Error ? err.message : 'Failed to render diagram')
-      }
-    }
-
-    renderDiagram()
-  }, [chart])
-
-  if (error) {
-    return (
-      <div className="my-4 p-4 bg-status-failed/10 border border-status-failed/30 rounded-lg not-prose">
-        <div className="flex items-center gap-2 text-status-failed text-sm mb-2">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <span>Mermaid diagram error</span>
-        </div>
-        <pre className="text-xs text-text-muted font-mono whitespace-pre-wrap">{error}</pre>
-        <details className="mt-2">
-          <summary className="text-xs text-text-muted cursor-pointer hover:text-text-secondary">Show source</summary>
-          <pre className="mt-2 text-xs text-text-muted font-mono whitespace-pre-wrap bg-surface p-2 rounded">{chart}</pre>
-        </details>
-      </div>
-    )
-  }
-
-  if (!svg) {
-    return (
-      <div className="my-4 p-4 bg-surface border border-border rounded-lg flex items-center justify-center not-prose">
-        <svg className="w-5 h-5 animate-spin text-text-muted" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-      </div>
-    )
-  }
-
-  return (
-    <div 
-      ref={containerRef}
-      className="my-4 p-4 bg-surface border border-border rounded-lg overflow-x-auto flex justify-center not-prose"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  )
-}
-
 // JSON view component
 function JsonView({ template }: { template: ProcessTemplate | StepTemplate }) {
   // Remove UI-specific fields for cleaner JSON display
   const cleanTemplate = { ...template }
   delete (cleanTemplate as any).filePath
-  delete (cleanTemplate as any).markdownPath
-  delete (cleanTemplate as any).markdownContent
 
   return (
     <pre className="text-xs font-mono text-text-secondary bg-surface rounded-lg p-4 overflow-x-auto">

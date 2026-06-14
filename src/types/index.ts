@@ -642,8 +642,6 @@ export interface ProcessTemplate {
   references: TemplateReferences
   // UI-specific fields
   filePath?: string
-  markdownPath?: string
-  markdownContent?: string
 }
 
 export interface StepOutput {
@@ -710,8 +708,6 @@ export interface StepTemplate {
   references?: StepReferences
   // UI-specific fields
   filePath?: string
-  markdownPath?: string
-  markdownContent?: string
 }
 
 export interface TemplateSummary {
@@ -736,10 +732,10 @@ export interface StepSummary {
 }
 
 // ============================================================================
-// Template Sources types
+// Marketplace types
 // ============================================================================
 
-export interface TemplateSourceInfo {
+export interface MarketplaceInfo {
   name: string
   url: string
   branch: string
@@ -749,7 +745,18 @@ export interface TemplateSourceInfo {
   cached: boolean
 }
 
-export interface TemplateSourcesStatus {
-  sources: TemplateSourceInfo[]
-  settings: { autoSyncOnStale: boolean; staleDurationMinutes: number }
+export interface MarketplacesStatus {
+  marketplaces: MarketplaceInfo[]
+  settings: { autoRefreshOnStale: boolean; staleDurationMinutes: number }
+}
+
+export interface MarketplaceTemplate {
+  name: string
+  title: string
+  category: string
+  type: 'process' | 'step'
+  marketplace: string
+  description: string
+  installed: boolean
+  updateAvailable: boolean
 }
