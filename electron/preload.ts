@@ -386,29 +386,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // ============================================================================
-  // Template Sources API
+  // Marketplace API
   // ============================================================================
 
-  templateSourcesList: () =>
-    ipcRenderer.invoke('template-sources:list') as Promise<{ success: boolean; data?: unknown; error?: string }>,
+  marketplaceList: () =>
+    ipcRenderer.invoke('marketplace:list') as Promise<{ success: boolean; data?: unknown; error?: string }>,
 
-  templateSourcesAdd: (name: string, url: string, branch: string, priority: number) =>
-    ipcRenderer.invoke('template-sources:add', name, url, branch, priority) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+  marketplaceAdd: (name: string, url: string, branch: string, priority: number) =>
+    ipcRenderer.invoke('marketplace:add', name, url, branch, priority) as Promise<{ success: boolean; data?: unknown; error?: string }>,
 
-  templateSourcesRemove: (name: string) =>
-    ipcRenderer.invoke('template-sources:remove', name) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+  marketplaceRemove: (name: string) =>
+    ipcRenderer.invoke('marketplace:remove', name) as Promise<{ success: boolean; data?: unknown; error?: string }>,
 
-  templateSourcesToggle: (name: string) =>
-    ipcRenderer.invoke('template-sources:toggle', name) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+  marketplaceToggle: (name: string) =>
+    ipcRenderer.invoke('marketplace:toggle', name) as Promise<{ success: boolean; data?: unknown; error?: string }>,
 
-  templateSourcesUpdate: (name: string, updates: { newName?: string; url?: string; branch?: string; priority?: number }) =>
-    ipcRenderer.invoke('template-sources:update', name, updates) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+  marketplaceUpdate: (name: string, updates: { newName?: string; url?: string; branch?: string; priority?: number }) =>
+    ipcRenderer.invoke('marketplace:update', name, updates) as Promise<{ success: boolean; data?: unknown; error?: string }>,
 
-  templateSourcesSync: (sourceName?: string) =>
-    ipcRenderer.invoke('template-sources:sync', sourceName) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+  marketplaceRefresh: (marketplaceName?: string) =>
+    ipcRenderer.invoke('marketplace:refresh', marketplaceName) as Promise<{ success: boolean; data?: unknown; error?: string }>,
 
-  templateSourcesStatus: () =>
-    ipcRenderer.invoke('template-sources:status') as Promise<{ success: boolean; data?: unknown; error?: string }>,
+  marketplaceStatus: () =>
+    ipcRenderer.invoke('marketplace:status') as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
+  marketplaceCatalog: () =>
+    ipcRenderer.invoke('marketplace:catalog') as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
+  marketplaceInstall: (marketplace: string, template: string, category: string, type: string) =>
+    ipcRenderer.invoke('marketplace:install', marketplace, template, category, type) as Promise<{ success: boolean; data?: unknown; error?: string }>,
+
+  marketplaceUninstall: (template: string, type: string) =>
+    ipcRenderer.invoke('marketplace:uninstall', template, type) as Promise<{ success: boolean; data?: unknown; error?: string }>,
 
   // Agent event listeners
   onAgentOutput: (callback: (event: AgentOutputEvent) => void) => {
@@ -433,6 +442,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   updateQuitAndInstall: () =>
     ipcRenderer.invoke('update:quit-and-install') as Promise<void>,
+
+  updateStartDownload: () =>
+    ipcRenderer.invoke('update:start-download') as Promise<void>,
 
   onUpdateStatus: (callback: (event: UpdateStatusEvent) => void) => {
     const subscription = (_event: Electron.IpcRendererEvent, data: UpdateStatusEvent) => callback(data)
@@ -499,14 +511,17 @@ declare global {
       getCurrentProcesses: () => Promise<Record<string, unknown>>
       navigateToProcessInMain: (processPath: string) => Promise<{ success: boolean }>
       onNavigateToProcessRequest: (callback: (processPath: string) => void) => () => void
-      // Template Sources API
-      templateSourcesList: () => Promise<{ success: boolean; data?: unknown; error?: string }>
-      templateSourcesAdd: (name: string, url: string, branch: string, priority: number) => Promise<{ success: boolean; data?: unknown; error?: string }>
-      templateSourcesRemove: (name: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
-      templateSourcesToggle: (name: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
-      templateSourcesUpdate: (name: string, updates: { newName?: string; url?: string; branch?: string; priority?: number }) => Promise<{ success: boolean; data?: unknown; error?: string }>
-      templateSourcesSync: (sourceName?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
-      templateSourcesStatus: () => Promise<{ success: boolean; data?: unknown; error?: string }>
+      // Marketplace API
+      marketplaceList: () => Promise<{ success: boolean; data?: unknown; error?: string }>
+      marketplaceAdd: (name: string, url: string, branch: string, priority: number) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      marketplaceRemove: (name: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      marketplaceToggle: (name: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      marketplaceUpdate: (name: string, updates: { newName?: string; url?: string; branch?: string; priority?: number }) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      marketplaceRefresh: (marketplaceName?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      marketplaceStatus: () => Promise<{ success: boolean; data?: unknown; error?: string }>
+      marketplaceCatalog: () => Promise<{ success: boolean; data?: unknown; error?: string }>
+      marketplaceInstall: (marketplace: string, template: string, category: string, type: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
+      marketplaceUninstall: (template: string, type: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
       // Channel API
       channelIsInstalled: () => Promise<boolean>
       channelGetInstalledPath: () => Promise<string | null>
@@ -522,6 +537,7 @@ declare global {
       // Auto-Update API
       updateGetCurrentVersion: () => Promise<string>
       updateQuitAndInstall: () => Promise<void>
+      updateStartDownload: () => Promise<void>
       onUpdateStatus: (callback: (event: UpdateStatusEvent) => void) => () => void
     }
   }

@@ -141,6 +141,10 @@ ipcMain.handle('update:quit-and-install', () => {
   autoUpdater.quitAndInstall()
 })
 
+ipcMain.handle('update:start-download', () => {
+  return autoUpdater.downloadUpdate()
+})
+
 // IPC Handlers
 ipcMain.handle('select-project-folder', async () => {
   const result = await dialog.showOpenDialog({
@@ -1198,10 +1202,10 @@ ipcMain.handle('overview:navigate-to-process', (_event, processPath: string) => 
 })
 
 // ============================================================================
-// Template Sources IPC Handlers
+// Marketplace IPC Handlers
 // ============================================================================
 
-async function runTemplateManagerCommand(args: string[]): Promise<{ success: boolean; data?: unknown; error?: string }> {
+async function runMarketplaceCommand(args: string[]): Promise<{ success: boolean; data?: unknown; error?: string }> {
   const { spawn } = await import('child_process')
   return new Promise((resolve) => {
     const proc = spawn('python3', ['scripts/template_manager.py', ...args], {
@@ -1236,13 +1240,13 @@ async function runTemplateManagerCommand(args: string[]): Promise<{ success: boo
   })
 }
 
-ipcMain.handle('template-sources:list', async () => {
-  return runTemplateManagerCommand(['list-sources'])
+ipcMain.handle('marketplace:list', async () => {
+  return runMarketplaceCommand(['list-marketplaces'])
 })
 
-ipcMain.handle('template-sources:add', async (_event, name: string, url: string, branch: string, priority: number) => {
-  return runTemplateManagerCommand([
-    'add-source',
+ipcMain.handle('marketplace:add', async (_event, name: string, url: string, branch: string, priority: number) => {
+  return runMarketplaceCommand([
+    'add-marketplace',
     '--name', name,
     '--url', url,
     '--branch', branch,
@@ -1250,31 +1254,49 @@ ipcMain.handle('template-sources:add', async (_event, name: string, url: string,
   ])
 })
 
-ipcMain.handle('template-sources:remove', async (_event, name: string) => {
-  return runTemplateManagerCommand(['remove-source', '--name', name])
+ipcMain.handle('marketplace:remove', async (_event, name: string) => {
+  return runMarketplaceCommand(['remove-marketplace', '--name', name])
 })
 
-ipcMain.handle('template-sources:toggle', async (_event, name: string) => {
-  return runTemplateManagerCommand(['toggle-source', '--name', name])
+ipcMain.handle('marketplace:toggle', async (_event, name: string) => {
+  return runMarketplaceCommand(['toggle-marketplace', '--name', name])
 })
 
-ipcMain.handle('template-sources:update', async (_event, name: string, updates: { newName?: string; url?: string; branch?: string; priority?: number }) => {
-  const args = ['update-source', '--name', name]
+ipcMain.handle('marketplace:update', async (_event, name: string, updates: { newName?: string; url?: string; branch?: string; priority?: number }) => {
+  const args = ['update-marketplace', '--name', name]
   if (updates.newName) args.push('--new-name', updates.newName)
   if (updates.url) args.push('--url', updates.url)
   if (updates.branch) args.push('--branch', updates.branch)
   if (updates.priority !== undefined) args.push('--priority', String(updates.priority))
-  return runTemplateManagerCommand(args)
+  return runMarketplaceCommand(args)
 })
 
-ipcMain.handle('template-sources:sync', async (_event, sourceName?: string) => {
-  const args = ['sync']
-  if (sourceName) args.push('--source', sourceName)
-  return runTemplateManagerCommand(args)
+ipcMain.handle('marketplace:refresh', async (_event, marketplaceName?: string) => {
+  const args = ['refresh']
+  if (marketplaceName) args.push('--marketplace', marketplaceName)
+  return runMarketplaceCommand(args)
 })
 
-ipcMain.handle('template-sources:status', async () => {
-  return runTemplateManagerCommand(['status'])
+ipcMain.handle('marketplace:status', async () => {
+  return runMarketplaceCommand(['status'])
+})
+
+ipcMain.handle('marketplace:catalog', async () => {
+  return runMarketplaceCommand(['catalog'])
+})
+
+ipcMain.handle('marketplace:install', async (_event, marketplace: string, template: string, category: string, type: string) => {
+  return runMarketplaceCommand([
+    'install',
+    '--marketplace', marketplace,
+    '--template', template,
+    '--category', category,
+    '--type', type
+  ])
+})
+
+ipcMain.handle('marketplace:uninstall', async (_event, template: string, type: string) => {
+  return runMarketplaceCommand(['uninstall', '--template', template, '--type', type])
 })
 
 // Single-instance lock: prevent multiple instances from conflicting
@@ -1302,7 +1324,7 @@ app.whenReady().then(() => {
 
   // Auto-update (production only)
   if (!process.env.VITE_DEV_SERVER_URL) {
-    autoUpdater.autoDownload = true
+    autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
 
     autoUpdater.on('checking-for-update', () => {

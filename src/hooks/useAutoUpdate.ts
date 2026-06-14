@@ -12,6 +12,7 @@ export interface UpdateState {
 export interface UseAutoUpdateResult {
   updateState: UpdateState
   dismissUpdate: () => void
+  acceptUpdate: () => void
   restartToUpdate: () => void
 }
 
@@ -71,9 +72,13 @@ export function useAutoUpdate(): UseAutoUpdateResult {
     setUpdateState((prev) => ({ ...prev, dismissed: true }))
   }, [])
 
+  const acceptUpdate = useCallback(() => {
+    window.electronAPI?.updateStartDownload()
+  }, [])
+
   const restartToUpdate = useCallback(() => {
     window.electronAPI?.updateQuitAndInstall()
   }, [])
 
-  return { updateState, dismissUpdate, restartToUpdate }
+  return { updateState, dismissUpdate, acceptUpdate, restartToUpdate }
 }

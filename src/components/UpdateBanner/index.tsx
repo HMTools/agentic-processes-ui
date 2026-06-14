@@ -3,6 +3,7 @@ import type { UpdateState } from '../../hooks/useAutoUpdate'
 interface UpdateBannerProps {
   updateState: UpdateState
   onDismiss: () => void
+  onAccept: () => void
   onRestart: () => void
 }
 
@@ -11,12 +12,12 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function UpdateBanner({ updateState, onDismiss, onRestart }: UpdateBannerProps) {
+export function UpdateBanner({ updateState, onDismiss, onAccept, onRestart }: UpdateBannerProps) {
   const { status, newVersion, downloadPercent, dismissed } = updateState
 
   if (dismissed || status === 'idle' || status === 'error') return null
 
-  const isDownloading = status === 'downloading' || status === 'available'
+  const isDownloading = status === 'downloading'
   const isReady = status === 'downloaded'
 
   return (
@@ -30,6 +31,11 @@ export function UpdateBanner({ updateState, onDismiss, onRestart }: UpdateBanner
         <svg className="w-4 h-4 text-accent animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+      )}
+      {status === 'available' && (
+        <svg className="w-4 h-4 text-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 5v14M5 12l7 7 7-7" />
         </svg>
       )}
       {isDownloading && (
@@ -46,7 +52,7 @@ export function UpdateBanner({ updateState, onDismiss, onRestart }: UpdateBanner
       {/* Text */}
       <span className="text-sm text-text-secondary">
         {status === 'checking' && 'Checking for updates...'}
-        {status === 'available' && `Update v${newVersion} available — downloading...`}
+        {status === 'available' && `Update v${newVersion} available`}
         {status === 'downloading' && (
           <>Downloading v{newVersion}... {downloadPercent.toFixed(0)}%</>
         )}
@@ -71,6 +77,14 @@ export function UpdateBanner({ updateState, onDismiss, onRestart }: UpdateBanner
       {!isDownloading && <div className="flex-1" />}
 
       {/* Actions */}
+      {status === 'available' && (
+        <button
+          onClick={onAccept}
+          className="text-xs font-medium px-3 py-1 rounded bg-accent text-white hover:bg-accent/80 transition-colors"
+        >
+          Update Now
+        </button>
+      )}
       {isReady && (
         <button
           onClick={onRestart}

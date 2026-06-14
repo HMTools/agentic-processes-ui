@@ -10,6 +10,7 @@ import { DiagramView } from './components/DiagramView'
 import { Settings } from './components/Settings'
 import { Templates } from './components/Templates'
 import { AgentSessions } from './components/AgentSessions'
+import { Marketplace } from './components/Marketplace'
 import { ProcessesOverview } from './components/ProcessesOverview'
 import { NewProcessModal } from './components/NewProcessModal'
 import { Sidebar } from './components/Layout/Sidebar'
@@ -17,9 +18,9 @@ import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { UpdateBanner } from './components/UpdateBanner'
 import { ErrorDisplay } from './components/ErrorDisplay'
-import type { ProcessTemplate } from './types'
+import type { ProcessTemplate, MarketplaceInfo, MarketplaceTemplate } from './types'
 
-type AppView = 'dashboard' | 'settings' | 'templates' | 'agent-sessions' | 'processes-overview'
+type AppView = 'dashboard' | 'settings' | 'templates' | 'agent-sessions' | 'processes-overview' | 'marketplace'
 
 function App() {
   const settingsState = useSettingsState()
@@ -60,7 +61,49 @@ function App() {
   const { hasPendingInteraction } = usePendingInteractions(activeProcessPathsMemo)
 
   // Auto-update state
-  const { updateState, dismissUpdate, restartToUpdate } = useAutoUpdate()
+  const { updateState, dismissUpdate, acceptUpdate, restartToUpdate } = useAutoUpdate()
+
+  // Marketplace data (owned by App.tsx, shared across sidebar badge and Marketplace page)
+  const [marketplaces, setMarketplaces] = useState<MarketplaceInfo[]>([])
+  const [catalog, setCatalog] = useState<MarketplaceTemplate[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+
+  const loadMarketplaceData = useCallback(async () => {
+    setCatalogLoading(true)
+    try {
+      if (window.electronAPI?.marketplaceList) {
+        const listResult = await window.electronAPI.marketplaceList()
+        if (listResult.success && listResult.data) {
+          const data = listResult.data as { marketplaces: MarketplaceInfo[] }
+          setMarketplaces(data.marketplaces || [])
+        }
+      }
+      if (window.electronAPI?.marketplaceCatalog) {
+        const catalogResult = await window.electronAPI.marketplaceCatalog()
+        if (catalogResult.success && catalogResult.data) {
+          const data = catalogResult.data as { catalog: MarketplaceTemplate[] }
+          setCatalog(data.catalog || [])
+        }
+      }
+    } catch {
+      // Silently handle errors — marketplace is non-critical
+    }
+    setCatalogLoading(false)
+  }, [])
+
+  // Load marketplace data in background on app startup
+  useEffect(() => {
+    loadMarketplaceData()
+  }, [loadMarketplaceData])
+
+  const handleMarketplaceDataChanged = useCallback(() => {
+    loadMarketplaceData()
+  }, [loadMarketplaceData])
+
+  const marketplaceUpdatesCount = useMemo(() =>
+    catalog.filter(t => t.updateAvailable).length,
+    [catalog]
+  )
 
   // Periodically discover external Claude Code sessions
   // Use refs to avoid re-triggering the interval on every render
@@ -164,6 +207,12 @@ function App() {
     setNavigatedFromPath(null)
   }, [])
 
+  const handleNavigateToMarketplace = useCallback(() => {
+    setCurrentView('marketplace')
+    setSelectedProcessPath(null)
+    setNavigatedFromPath(null)
+  }, [])
+
   const handleNavigateToProcessesOverview = useCallback(() => {
     setCurrentView('processes-overview')
     setSelectedProcessPath(null)
@@ -240,7 +289,10 @@ function App() {
           onNavigateToDashboard={handleNavigateToDashboard}
           onNavigateToTemplates={handleNavigateToTemplates}
           onNavigateToAgentSessions={handleNavigateToAgentSessions}
+          onNavigateToMarketplace={handleNavigateToMarketplace}
           onNavigateToProcessesOverview={handleNavigateToProcessesOverview}
+          marketplaceUpdatesCount={marketplaceUpdatesCount}
+          marketplaceCatalogLoading={catalogLoading}
           attentionCount={activeProcesses.filter(p => {
             if (hasPendingInteraction(p.path)) return true
             const full = getProcess(p.path)
@@ -256,6 +308,7 @@ function App() {
           <UpdateBanner
             updateState={updateState}
             onDismiss={dismissUpdate}
+            onAccept={acceptUpdate}
             onRestart={restartToUpdate}
           />
         <div className="flex-1 flex overflow-hidden">
@@ -270,6 +323,14 @@ function App() {
                 onUseTemplate={handleUseTemplate}
                 initialSelectedTemplate={initialSelectedTemplate}
                 onInitialTemplateConsumed={() => setInitialSelectedTemplate(null)}
+              />
+            ) : currentView === 'marketplace' ? (
+              <Marketplace
+                onBack={handleNavigateToDashboard}
+                marketplaces={marketplaces}
+                catalog={catalog}
+                catalogLoading={catalogLoading}
+                onMarketplaceDataChanged={handleMarketplaceDataChanged}
               />
             ) : currentView === 'processes-overview' ? (
               <ProcessesOverview
