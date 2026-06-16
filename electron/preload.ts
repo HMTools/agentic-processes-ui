@@ -172,9 +172,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Template loading (unified from ~/.claude/agentic-processes/)
   loadProcessTemplates: () =>
     ipcRenderer.invoke('load-process-templates'),
-  loadStepTemplates: () =>
-    ipcRenderer.invoke('load-step-templates'),
-
   // Q&A Session operations
   readQASession: (processPath: string) =>
     ipcRenderer.invoke('read-qa-session', processPath),
@@ -471,7 +468,6 @@ declare global {
       unwatchFile: (filePath: string) => Promise<boolean>
       deleteProcessInstance: (processPath: string) => Promise<{ success: boolean; error?: string }>
       loadProcessTemplates: () => Promise<unknown[]>
-      loadStepTemplates: () => Promise<unknown[]>
       // Q&A Session API
       readQASession: (processPath: string) => Promise<unknown | null>
       answerQuestion: (processPath: string, questionId: string, answer: string) => Promise<{ success: boolean; error?: string }>

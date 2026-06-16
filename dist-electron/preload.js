@@ -19,7 +19,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteProcessInstance: (processPath) => ipcRenderer.invoke("delete-process-instance", processPath),
   // Template loading (unified from ~/.claude/agentic-processes/)
   loadProcessTemplates: () => ipcRenderer.invoke("load-process-templates"),
-  loadStepTemplates: () => ipcRenderer.invoke("load-step-templates"),
   // Q&A Session operations
   readQASession: (processPath) => ipcRenderer.invoke("read-qa-session", processPath),
   answerQuestion: (processPath, questionId, answer) => ipcRenderer.invoke("answer-question", processPath, questionId, answer),
@@ -185,6 +184,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Auto-Update API
   updateGetCurrentVersion: () => ipcRenderer.invoke("update:get-current-version"),
   updateQuitAndInstall: () => ipcRenderer.invoke("update:quit-and-install"),
+  updateStartDownload: () => ipcRenderer.invoke("update:start-download"),
   onUpdateStatus: (callback) => {
     const subscription = (_event, data) => callback(data);
     ipcRenderer.on("update:status", subscription);

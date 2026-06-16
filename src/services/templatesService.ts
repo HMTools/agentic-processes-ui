@@ -1,8 +1,6 @@
 import type {
   ProcessTemplate,
-  StepTemplate,
   TemplateSummary,
-  StepSummary,
   MemoryFlowMapping,
   MemoryFlowStep
 } from '../types'
@@ -17,20 +15,6 @@ export function toTemplateSummary(template: ProcessTemplate): TemplateSummary {
     stepCount: template.steps.length,
     filePath: template.filePath || '',
     lastUpdated: template.metadata.lastUpdated
-  }
-}
-
-// Convert StepTemplate to StepSummary for list display
-export function toStepSummary(step: StepTemplate): StepSummary {
-  return {
-    name: step.name,
-    category: step.category,
-    title: step.metadata.title,
-    purpose: step.metadata.purposeAndUsage,
-    substepCount: step.substeps?.length || 0,
-    approvalRequired: step.approvalRequired || false,
-    filePath: step.filePath || '',
-    lastUpdated: step.metadata.lastUpdated
   }
 }
 

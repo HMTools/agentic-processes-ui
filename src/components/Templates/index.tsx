@@ -4,7 +4,6 @@ import { useFavoriteTemplates } from '../../hooks/useFavoriteTemplates'
 import type { ProcessTemplate } from '../../types'
 import { ProcessTemplateList } from './ProcessTemplateList'
 import { TemplateDetail } from './TemplateDetail'
-import { BlueprintDrawer } from './BlueprintDrawer'
 import { StepDetailModal } from './StepDetailModal'
 
 const FAVORITES_FILTER = '__favorites__'
@@ -24,9 +23,7 @@ interface TemplatesProps {
 export function Templates({ onBack, onUseTemplate, initialSelectedTemplate, onInitialTemplateConsumed }: TemplatesProps) {
   const {
     processTemplates,
-    stepTemplates,
     processCategories,
-    stepCategories,
     isLoading,
     error,
     loadTemplates
@@ -37,7 +34,6 @@ export function Templates({ onBack, onUseTemplate, initialSelectedTemplate, onIn
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<ProcessTemplate | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [blueprintDrawerOpen, setBlueprintDrawerOpen] = useState(false)
   const [expandedStepIndex, setExpandedStepIndex] = useState<number | null>(null)
   const [navigationStack, setNavigationStack] = useState<NavigationEntry[]>([])
   const [highlightedStepIndex, setHighlightedStepIndex] = useState<number | null>(null)
@@ -130,14 +126,6 @@ export function Templates({ onBack, onUseTemplate, initialSelectedTemplate, onIn
 
   const listCategory = showingFavorites ? null : selectedCategory
 
-  const isStepFavorite = useCallback((name: string) => {
-    return isFavorite('step', name)
-  }, [isFavorite])
-
-  const handleToggleStepFavorite = useCallback((name: string) => {
-    toggleFavorite('step', name)
-  }, [toggleFavorite])
-
   return (
     <div className="h-full w-full flex flex-col bg-background">
       {/* Header */}
@@ -161,24 +149,6 @@ export function Templates({ onBack, onUseTemplate, initialSelectedTemplate, onIn
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Blueprints button */}
-            <button
-              onClick={() => setBlueprintDrawerOpen(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface transition-colors"
-              title="Browse step blueprints"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-              <span className="text-sm">Blueprints</span>
-              {stepTemplates.length > 0 && (
-                <span className="px-1.5 py-0.5 text-xs rounded bg-surface-elevated text-text-muted">
-                  {stepTemplates.length}
-                </span>
-              )}
-            </button>
-
             {/* Refresh button */}
             <button
               onClick={loadTemplates}
@@ -318,7 +288,6 @@ export function Templates({ onBack, onUseTemplate, initialSelectedTemplate, onIn
                 <div className="w-1/2 border-l border-border overflow-hidden">
                   <TemplateDetail
                     template={selectedTemplate}
-                    templateType="process"
                     onClose={handleCloseDetail}
                     onUseTemplate={onUseTemplate}
                     expandedStepIndex={expandedStepIndex}
@@ -335,16 +304,6 @@ export function Templates({ onBack, onUseTemplate, initialSelectedTemplate, onIn
           </>
         )}
       </div>
-
-      {/* Blueprint drawer */}
-      <BlueprintDrawer
-        open={blueprintDrawerOpen}
-        onClose={() => setBlueprintDrawerOpen(false)}
-        stepTemplates={stepTemplates}
-        stepCategories={stepCategories}
-        isFavorite={isStepFavorite}
-        onToggleFavorite={handleToggleStepFavorite}
-      />
 
       {/* Step detail modal */}
       {expandedStepIndex !== null && selectedTemplate && (

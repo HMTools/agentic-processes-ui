@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import type { ProcessTemplate, StepTemplate } from '../../types'
+import type { ProcessTemplate } from '../../types'
 import { formatCategoryName, getStepRefDisplayName, extractTemplateMemoryFlow } from '../../services/templatesService'
 import { MemoryFlowTable } from './MemoryFlowTable'
 
@@ -18,8 +18,7 @@ export function toDisplayText(value: unknown): string {
 }
 
 interface TemplateDetailProps {
-  template: ProcessTemplate | StepTemplate
-  templateType: 'process' | 'step'
+  template: ProcessTemplate
   onClose: () => void
   onUseTemplate?: (template: ProcessTemplate) => void
   expandedStepIndex?: number | null
@@ -33,7 +32,7 @@ interface TemplateDetailProps {
 
 type ViewMode = 'formatted' | 'json'
 
-export function TemplateDetail({ template, templateType, onClose, onUseTemplate, expandedStepIndex, onStepClick, onSubProcessClick, parentTemplateName, parentStepName, onNavigateBack, highlightedStepIndex }: TemplateDetailProps) {
+export function TemplateDetail({ template, onClose, onUseTemplate, expandedStepIndex, onStepClick, onSubProcessClick, parentTemplateName, parentStepName, onNavigateBack, highlightedStepIndex }: TemplateDetailProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('formatted')
 
   return (
@@ -58,17 +57,10 @@ export function TemplateDetail({ template, templateType, onClose, onUseTemplate,
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <div className="p-2 rounded-lg bg-accent/20">
-              {templateType === 'process' ? (
-                <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                    d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                </svg>
-              )}
+              <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+              </svg>
             </div>
             <div>
               <h2 className="text-sm font-semibold text-text-primary">
@@ -78,9 +70,9 @@ export function TemplateDetail({ template, templateType, onClose, onUseTemplate,
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {templateType === 'process' && onUseTemplate && (
+            {onUseTemplate && (
               <button
-                onClick={() => onUseTemplate(template as ProcessTemplate)}
+                onClick={() => onUseTemplate(template)}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-background hover:bg-accent/90 transition-colors"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -129,10 +121,8 @@ export function TemplateDetail({ template, templateType, onClose, onUseTemplate,
       <div className="flex-1 overflow-y-auto p-4">
         {viewMode === 'json' ? (
           <JsonView template={template} />
-        ) : templateType === 'process' ? (
-          <ProcessTemplateView template={template as ProcessTemplate} expandedStepIndex={expandedStepIndex} onStepClick={onStepClick} onSubProcessClick={onSubProcessClick} highlightedStepIndex={highlightedStepIndex} />
         ) : (
-          <StepTemplateView template={template as StepTemplate} />
+          <ProcessTemplateView template={template} expandedStepIndex={expandedStepIndex} onStepClick={onStepClick} onSubProcessClick={onSubProcessClick} highlightedStepIndex={highlightedStepIndex} />
         )}
       </div>
     </div>
@@ -140,7 +130,7 @@ export function TemplateDetail({ template, templateType, onClose, onUseTemplate,
 }
 
 // JSON view component
-function JsonView({ template }: { template: ProcessTemplate | StepTemplate }) {
+function JsonView({ template }: { template: ProcessTemplate }) {
   // Remove UI-specific fields for cleaner JSON display
   const cleanTemplate = { ...template }
   delete (cleanTemplate as any).filePath
@@ -467,193 +457,6 @@ function StepDefinitionDetail({ stepDef }: { stepDef: Record<string, unknown> })
             )}
           </div>
         </div>
-      )}
-    </div>
-  )
-}
-
-// Step template formatted view
-export function StepTemplateView({ template }: { template: StepTemplate }) {
-  return (
-    <div className="space-y-6">
-      {/* Metadata */}
-      <Section title="Overview">
-        <div className="space-y-3">
-          <InfoRow label="Category" value={formatCategoryName(template.category)} />
-          <InfoRow label="Last Updated" value={template.metadata.lastUpdated} />
-          {template.approvalRequired && (
-            <InfoRow label="Approval" value="Required" />
-          )}
-          <div>
-            <Label>Purpose</Label>
-            <p className="text-xs text-text-secondary mt-1">{template.metadata.purposeAndUsage}</p>
-          </div>
-        </div>
-      </Section>
-
-      {/* Output */}
-      <Section title="Output">
-        <div className="space-y-2">
-          <p className="text-xs text-text-secondary">{template.output.description}</p>
-          {template.output.artifacts && template.output.artifacts.length > 0 && (
-            <div>
-              <Label>Artifacts</Label>
-              <div className="flex flex-wrap gap-1.5 mt-1">
-                {template.output.artifacts.map((artifact, i) => (
-                  <span key={i} className="px-2 py-0.5 text-[10px] rounded bg-surface text-text-secondary">
-                    {toDisplayText(artifact)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </Section>
-
-      {/* Guidance */}
-      {template.guidance && (
-        <Section title="Guidance">
-          <div className="space-y-3">
-            {template.guidance.prerequisites && template.guidance.prerequisites.length > 0 && (
-              <div>
-                <Label>Prerequisites</Label>
-                <ul className="mt-1 space-y-1">
-                  {template.guidance.prerequisites.map((prereq, i) => (
-                    <li key={i} className="text-[10px] text-text-muted flex items-start gap-1.5">
-                      <span className="text-accent mt-0.5">•</span>
-                      {toDisplayText(prereq)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {template.guidance.specificActions && template.guidance.specificActions.length > 0 && (
-              <div>
-                <Label>Specific Actions</Label>
-                <ul className="mt-1 space-y-1">
-                  {template.guidance.specificActions.map((action, i) => (
-                    <li key={i} className="text-[10px] text-text-muted flex items-start gap-1.5">
-                      <span className="text-accent mt-0.5">{i + 1}.</span>
-                      {toDisplayText(action)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {template.guidance.tools && template.guidance.tools.length > 0 && (
-              <div>
-                <Label>Tools</Label>
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {template.guidance.tools.map((tool, i) => (
-                    <span key={i} className="px-2 py-0.5 text-[10px] rounded bg-surface font-mono text-text-secondary">
-                      {toDisplayText(tool)}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {template.guidance.bestPractices && template.guidance.bestPractices.length > 0 && (
-              <div>
-                <Label>Best Practices</Label>
-                <ul className="mt-1 space-y-1">
-                  {template.guidance.bestPractices.map((practice, i) => (
-                    <li key={i} className="text-[10px] text-text-muted flex items-start gap-1.5">
-                      <span className="text-status-completed mt-0.5">✓</span>
-                      {toDisplayText(practice)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        </Section>
-      )}
-
-      {/* Substeps */}
-      {template.substeps && template.substeps.length > 0 && (
-        <Section title={`Substeps (${template.substeps.length})`}>
-          <div className="space-y-2">
-            {template.substeps.map((substep, index) => (
-              <div key={index} className="p-2 bg-surface rounded-md">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="w-5 h-5 flex items-center justify-center rounded bg-surface-elevated text-[10px] font-medium text-text-muted flex-shrink-0">
-                    {substep.number}
-                  </span>
-                  <span className="text-xs font-medium text-text-primary">{substep.name}</span>
-                  {substep.conditional && (
-                    <span className="px-1 py-0.5 text-[9px] rounded bg-status-active/20 text-status-active">
-                      Conditional
-                    </span>
-                  )}
-                </div>
-                <p className="text-[10px] text-text-muted ml-7">{toDisplayText(substep.description)}</p>
-                {substep.actions && substep.actions.length > 0 && (
-                  <ul className="mt-1.5 ml-7 space-y-0.5">
-                    {substep.actions.map((action, i) => (
-                      <li key={i} className="text-[10px] text-text-muted flex items-start gap-1.5">
-                        <span className="text-accent">→</span>
-                        {toDisplayText(action)}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* Flow */}
-      {template.flow?.description && (
-        <Section title="Flow">
-          <p className="text-xs text-text-secondary">{template.flow.description}</p>
-        </Section>
-      )}
-
-      {/* Memory File Usage */}
-      {template.memoryFileUsage && (
-        <Section title="Memory File Usage">
-          <div className="space-y-2">
-            {template.memoryFileUsage.readFrom && (
-              <InfoRow label="Read From" value={template.memoryFileUsage.readFrom} />
-            )}
-            {template.memoryFileUsage.writeTo && (
-              <InfoRow label="Write To" value={template.memoryFileUsage.writeTo} />
-            )}
-          </div>
-        </Section>
-      )}
-
-      {/* References */}
-      {template.references && (
-        <Section title="References">
-          <div className="space-y-3">
-            {template.references.relatedSteps && template.references.relatedSteps.length > 0 && (
-              <div>
-                <Label>Related Steps</Label>
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {template.references.relatedSteps.map(ref => (
-                    <span key={ref} className="px-2 py-0.5 text-[10px] rounded bg-surface text-text-secondary">
-                      {ref}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {template.references.usedInTemplates && template.references.usedInTemplates.length > 0 && (
-              <div>
-                <Label>Used In Templates</Label>
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {template.references.usedInTemplates.map(ref => (
-                    <span key={ref} className="px-2 py-0.5 text-[10px] rounded bg-surface text-text-secondary">
-                      {ref}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </Section>
       )}
     </div>
   )

@@ -16642,6 +16642,9 @@ ipcMain.handle("update:get-current-version", () => {
 ipcMain.handle("update:quit-and-install", () => {
   mainExports.autoUpdater.quitAndInstall();
 });
+ipcMain.handle("update:start-download", () => {
+  return mainExports.autoUpdater.downloadUpdate();
+});
 ipcMain.handle("select-project-folder", async () => {
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
@@ -17120,49 +17123,6 @@ ipcMain.handle("load-process-templates", async () => {
     return [];
   }
 });
-ipcMain.handle("load-step-templates", async () => {
-  try {
-    const stepsPath = join(homedir(), ".claude", "agentic-processes", "templates", "steps");
-    if (!existsSync(stepsPath)) {
-      console.log(`Steps directory not found: ${stepsPath}`);
-      return [];
-    }
-    const steps = [];
-    const categories = await readdir(stepsPath);
-    for (const category of categories) {
-      const categoryPath = join(stepsPath, category);
-      const categoryStat = await stat$1(categoryPath);
-      if (!categoryStat.isDirectory() || category.startsWith(".") || category.startsWith("_")) {
-        continue;
-      }
-      const stepFolders = await readdir(categoryPath);
-      for (const stepName of stepFolders) {
-        const stepPath = join(categoryPath, stepName);
-        const stepStat = await stat$1(stepPath);
-        if (!stepStat.isDirectory() || stepName.startsWith(".") || stepName.startsWith("_")) {
-          continue;
-        }
-        const jsonPath = join(stepPath, `${stepName}.json`);
-        if (existsSync(jsonPath)) {
-          try {
-            const content = await readFile(jsonPath, "utf-8");
-            const step = JSON.parse(content);
-            if (step.type === "step") {
-              step.filePath = jsonPath;
-              steps.push(step);
-            }
-          } catch (err) {
-            console.error(`Error reading step: ${jsonPath}`, err);
-          }
-        }
-      }
-    }
-    return steps;
-  } catch (error2) {
-    console.error("Error loading step templates:", error2);
-    return [];
-  }
-});
 ipcMain.handle("clipboard:read-text", () => {
   return clipboard.readText();
 });
@@ -17601,7 +17561,7 @@ app.whenReady().then(() => {
   createWindow();
   initializeChannelManager();
   if (!process.env.VITE_DEV_SERVER_URL) {
-    mainExports.autoUpdater.autoDownload = true;
+    mainExports.autoUpdater.autoDownload = false;
     mainExports.autoUpdater.autoInstallOnAppQuit = true;
     mainExports.autoUpdater.on("checking-for-update", () => {
       mainWindow?.webContents.send("update:status", { status: "checking" });

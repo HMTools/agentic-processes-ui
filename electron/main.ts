@@ -729,63 +729,6 @@ ipcMain.handle('load-process-templates', async () => {
   }
 })
 
-// Load all step templates from ~/.claude/agentic-processes/templates/steps/ (unified)
-ipcMain.handle('load-step-templates', async () => {
-  try {
-    const stepsPath = join(homedir(), '.claude', 'agentic-processes', 'templates', 'steps')
-
-    if (!existsSync(stepsPath)) {
-      console.log(`Steps directory not found: ${stepsPath}`)
-      return []
-    }
-
-    const steps = []
-    const categories = await readdir(stepsPath)
-
-    for (const category of categories) {
-      const categoryPath = join(stepsPath, category)
-      const categoryStat = await stat(categoryPath)
-
-      // Skip non-directories and special folders
-      if (!categoryStat.isDirectory() || category.startsWith('.') || category.startsWith('_')) {
-        continue
-      }
-
-      const stepFolders = await readdir(categoryPath)
-
-      for (const stepName of stepFolders) {
-        const stepPath = join(categoryPath, stepName)
-        const stepStat = await stat(stepPath)
-
-        if (!stepStat.isDirectory() || stepName.startsWith('.') || stepName.startsWith('_')) {
-          continue
-        }
-
-        const jsonPath = join(stepPath, `${stepName}.json`)
-
-        if (existsSync(jsonPath)) {
-          try {
-            const content = await readFile(jsonPath, 'utf-8')
-            const step = JSON.parse(content)
-
-            if (step.type === 'step') {
-              step.filePath = jsonPath
-              steps.push(step)
-            }
-          } catch (err) {
-            console.error(`Error reading step: ${jsonPath}`, err)
-          }
-        }
-      }
-    }
-
-    return steps
-  } catch (error) {
-    console.error('Error loading step templates:', error)
-    return []
-  }
-})
-
 // ============================================================================
 // Clipboard IPC Handlers
 // ============================================================================

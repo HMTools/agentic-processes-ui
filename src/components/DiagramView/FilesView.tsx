@@ -31,6 +31,8 @@ export function FilesView({ processPath, loading, filesChanged }: FilesViewProps
   const [files, setFiles] = useState<ProcessFile[]>([])
   const [filesLoading, setFilesLoading] = useState(true)
   const [selectedFile, setSelectedFile] = useState<ProcessFile | null>(null)
+  const [activityExpanded, setActivityExpanded] = useState(true)
+  const [outputExpanded, setOutputExpanded] = useState(true)
   const [frameworkExpanded, setFrameworkExpanded] = useState(false)
 
   // Load files list
@@ -95,46 +97,85 @@ export function FilesView({ processPath, loading, filesChanged }: FilesViewProps
       <div className="h-full overflow-auto p-4">
         {/* Step File Activity (tracked by PostToolUse hook) */}
         {filesChanged && filesChanged.length > 0 && (
-          <div className="mb-4">
-            <div className="flex items-center gap-2 px-1 pb-2">
+          <div className="mb-4 bg-accent/5 border border-accent/15 rounded-lg p-3">
+            <button
+              onClick={() => setActivityExpanded(e => !e)}
+              className="flex items-center gap-2 w-full cursor-pointer select-none pb-1"
+            >
+              <svg
+                className={`w-3 h-3 text-accent transition-transform ${activityExpanded ? 'rotate-90' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
               <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
-              <span className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+              <span className="text-xs font-medium text-accent uppercase tracking-wider">
                 Step File Activity ({filesChanged.length})
               </span>
-            </div>
-            <div className="space-y-1.5">
-              {filesChanged.map((fc) => (
-                <FileChangeCard
-                  key={fc.path}
-                  fileChange={fc}
-                  onClick={fc.operation === 'edited' ? () => setSelectedFile(fileChangeToProcessFile(fc)) : undefined}
-                />
-              ))}
-            </div>
+            </button>
+            {activityExpanded && (
+              <div className="space-y-1.5 mt-1">
+                {filesChanged.map((fc) => (
+                  <FileChangeCard
+                    key={fc.path}
+                    fileChange={fc}
+                    onClick={fc.operation === 'edited' ? () => setSelectedFile(fileChangeToProcessFile(fc)) : undefined}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        <div className="space-y-2">
-          {userFiles.length === 0 && frameworkFiles.length > 0 && (
-            <p className="px-1 pb-1 text-xs text-text-muted italic">No output files yet</p>
-          )}
-          {userFiles.map((file) => (
-            <FileCard
-              key={file.path}
-              file={file}
-              onClick={() => setSelectedFile(file)}
-            />
-          ))}
-        </div>
+        {/* Output Files */}
+        {userFiles.length > 0 && (
+          <div>
+            <button
+              onClick={() => setOutputExpanded(e => !e)}
+              className="flex items-center gap-2 px-1 py-2 w-full cursor-pointer select-none text-xs font-medium text-text-secondary uppercase tracking-wider hover:text-text-primary transition-colors"
+            >
+              <svg
+                className={`w-3 h-3 transition-transform ${outputExpanded ? 'rotate-90' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+              Output Files ({userFiles.length})
+            </button>
+            {outputExpanded && (
+              <div className="space-y-2 mt-1">
+                {userFiles.map((file) => (
+                  <FileCard
+                    key={file.path}
+                    file={file}
+                    onClick={() => setSelectedFile(file)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {userFiles.length === 0 && frameworkFiles.length > 0 && (
+          <p className="px-1 pb-1 text-xs text-text-muted italic">No output files yet</p>
+        )}
 
+        {/* Framework Files */}
         {frameworkFiles.length > 0 && (
           <div className="mt-4">
             <button
               onClick={() => setFrameworkExpanded(e => !e)}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-text-muted uppercase tracking-wider cursor-pointer hover:text-text-secondary select-none w-full"
+              className="flex items-center gap-2 px-1 py-2 w-full cursor-pointer select-none text-xs font-medium text-text-muted uppercase tracking-wider hover:text-text-secondary transition-colors"
             >
               <svg
                 className={`w-3 h-3 transition-transform ${frameworkExpanded ? 'rotate-90' : ''}`}
@@ -143,6 +184,12 @@ export function FilesView({ processPath, loading, filesChanged }: FilesViewProps
                 stroke="currentColor"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               Framework Files ({frameworkFiles.length})
             </button>
@@ -285,7 +332,7 @@ function FileChangeCard({ fileChange, onClick }: { fileChange: FileChange; onCli
   return (
     <Tag
       onClick={onClick}
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-border text-left w-full ${
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-border border-l-2 border-l-accent/40 text-left w-full ${
         isClickable
           ? 'cursor-pointer hover:border-accent/50 hover:bg-surface-elevated transition-colors group'
           : ''

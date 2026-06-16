@@ -308,7 +308,7 @@ export interface AgentSettings {
 
 /** Configuration for workspace setup */
 export interface WorkspaceConfig {
-  /** @deprecated No longer used — templates/steps load from ~/.claude/agentic-processes/ */
+  /** @deprecated No longer used — templates load from ~/.claude/agentic-processes/templates/processes/ */
   frameworkPath: string | null
 }
 
@@ -677,56 +677,12 @@ export interface StepMemoryFileUsage {
   fields?: string[]
 }
 
-export interface StepReferences {
-  relatedSteps?: string[]
-  usedInTemplates?: string[]
-  sharedComponent?: string
-}
-
-export interface StepTemplate {
-  type: 'step'
-  name: string
-  category: string
-  metadata: TemplateMetadata
-  parameters?: TemplateParameters
-  principlesRef?: string
-  principlesPath?: string
-  output: StepOutput
-  guidance: StepGuidance
-  substeps: StepSubstep[]
-  flow?: {
-    description: string
-  }
-  memoryFileUsage?: StepMemoryFileUsage
-  approvalRequired?: boolean
-  complexityScale?: Record<string, { range: string; description: string }>
-  dependencies?: {
-    requiredFiles?: string[]
-    requiredTools?: string[]
-  }
-  notes?: Record<string, string>
-  references?: StepReferences
-  // UI-specific fields
-  filePath?: string
-}
-
 export interface TemplateSummary {
   name: string
   category: string
   title: string
   purpose: string
   stepCount: number
-  filePath: string
-  lastUpdated: string
-}
-
-export interface StepSummary {
-  name: string
-  category: string
-  title: string
-  purpose: string
-  substepCount: number
-  approvalRequired: boolean
   filePath: string
   lastUpdated: string
 }
