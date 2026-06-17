@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2022
             platform: win
           - os: macos-latest
             platform: mac
@@ -33,6 +33,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      # Windows needs MSVC for compiling native modules (node-pty) via @electron/rebuild
+      - name: Setup MSVC
+        if: matrix.platform == 'win'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       # Linux needs additional packages for electron-builder
       - name: Install Linux dependencies
@@ -54,6 +61,7 @@ jobs:
         run: npx electron-builder --config electron-builder.yml --${{ matrix.platform }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GYP_MSVS_VERSION: '2022'
           # Windows code signing via SignPath (optional)
           # CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           # CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
