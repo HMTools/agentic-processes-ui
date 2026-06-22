@@ -71,7 +71,7 @@ export function StepDetailModal({ steps, currentIndex, onNavigate, onClose }: St
             </span>
             <div className="min-w-0">
               <h2 className="text-base font-semibold text-text-primary truncate">{step.name}</h2>
-              <p className="text-xs font-mono text-text-muted truncate">{getStepRefDisplayName(step.stepRef)}</p>
+              <p className="text-xs font-mono text-text-muted truncate" title={step.stepRef || undefined}>{getStepRefDisplayName(step.stepRef, step.stepRefName)}</p>
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {step.approvalRequired && (

@@ -72,61 +72,33 @@ export function formatCategoryName(category: string): string {
     .join(' ')
 }
 
-// Get step reference display name
-export function getStepRefDisplayName(stepRef: string): string {
+/**
+ * Get display name for a step reference.
+ * stepRef is always a UUID — use stepRefName (human-readable companion) for display.
+ * Falls back to the raw UUID if no stepRefName is available.
+ */
+export function getStepRefDisplayName(stepRef: string, stepRefName?: string): string {
   if (!stepRef) return ''
 
-  // Simple name format (new): "understand-context" -> "Understand Context"
-  if (!stepRef.startsWith('@')) {
-    return stepRef
+  // Use the companion name if available
+  const displayName = stepRefName || stepRef
+  // If it looks like a hyphenated slug, title-case it
+  if (displayName.includes('-') && !displayName.includes(' ') && displayName.length < 80) {
+    return displayName
       .split('-')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ')
   }
-
-  // @framework-step:name -> extract name and titleize
-  const fwMatch = stepRef.match(/@framework-step:([\w-]+)/)
-  if (fwMatch) {
-    return fwMatch[1]
-      .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ')
-  }
-
-  // Legacy @step:category/step-name -> extract name and titleize
-  const legacyMatch = stepRef.match(/@(?:step|user-step):[\w-]+\/([\w-]+)/)
-  if (legacyMatch) {
-    return legacyMatch[1]
-      .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ')
-  }
-
-  return stepRef
+  return displayName
 }
 
-// Parse step reference to get category and name
-export function parseStepRef(stepRef: string): { category: string; name: string } | null {
+/**
+ * Parse step reference to get category and name.
+ * stepRef is always a UUID — stepRefName provides the human-readable name.
+ */
+export function parseStepRef(stepRef: string, stepRefName?: string): { category: string; name: string } | null {
   if (!stepRef) return null
-
-  // Simple name format (new): treat as name with empty category
-  if (!stepRef.startsWith('@')) {
-    return { category: '', name: stepRef }
-  }
-
-  // @framework-step:name
-  const fwMatch = stepRef.match(/@framework-step:([\w-]+)/)
-  if (fwMatch) {
-    return { category: 'framework', name: fwMatch[1] }
-  }
-
-  // Legacy @step:category/step-name and @user-step:category/step-name
-  const legacyMatch = stepRef.match(/@(?:step|user-step):([\w-]+)\/([\w-]+)/)
-  if (legacyMatch) {
-    return { category: legacyMatch[1], name: legacyMatch[2] }
-  }
-
-  return null
+  return { category: '', name: stepRefName || stepRef }
 }
 
 // Extract memory flow mapping from a process template

@@ -260,7 +260,7 @@ function ProcessTemplateView({ template, expandedStepIndex, onStepClick, onSubPr
                       )}
                     </div>
                     <p className="text-[10px] text-text-muted mt-0.5">
-                      {step.stepRef ? getStepRefDisplayName(step.stepRef) : hasSubProcess ? step.subProcessTrigger!.template : ''}
+                      {step.stepRef ? getStepRefDisplayName(step.stepRef, step.stepRefName) : hasSubProcess ? (step.subProcessTrigger!.templateName || step.subProcessTrigger!.template) : ''}
                     </p>
                     {step.output && (
                       <p className="text-[10px] text-text-muted mt-0.5">

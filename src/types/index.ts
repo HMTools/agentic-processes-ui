@@ -113,10 +113,22 @@ export interface ProcessStep {
   name: string
   status: StepStatus
   stepRef: StepRef
+  stepRefName?: string
   startedAt?: ISOTimestamp
   completedAt?: ISOTimestamp
   approvalRequired?: boolean
   approved?: boolean
+  subProcessTrigger?: {
+    condition?: string
+    template: string
+    templateName?: string
+    parameters?: Record<string, string>
+    forEach?: string
+    syncPoint: string
+  }
+  loopBackTo?: string
+  loopCondition?: string
+  maxIterations?: number
   stepDefinition: Record<string, unknown>
 }
 
@@ -606,6 +618,7 @@ export interface TemplateStep {
   number: number
   name: string
   stepRef: string
+  stepRefName?: string
   output?: string
   conditional?: string
   approvalRequired?: boolean
@@ -613,9 +626,13 @@ export interface TemplateStep {
   subProcessTrigger?: {
     condition?: string
     template: string
+    templateName?: string
     forEach?: string
     syncPoint?: string
   }
+  loopBackTo?: string
+  loopCondition?: string
+  maxIterations?: number
   stepDefinition: Record<string, unknown>
 }
 

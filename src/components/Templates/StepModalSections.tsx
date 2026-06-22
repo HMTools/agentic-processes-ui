@@ -295,7 +295,7 @@ export function SubProcessSection({ trigger }: { trigger: NonNullable<TemplateSt
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs text-text-muted">Template</span>
-          <code className="text-xs font-mono text-accent">{trigger.template}</code>
+          <code className="text-xs font-mono text-accent" title={trigger.template}>{trigger.templateName || trigger.template}</code>
         </div>
         {trigger.condition && (
           <div className="flex items-start justify-between gap-4">

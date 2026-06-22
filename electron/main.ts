@@ -629,13 +629,34 @@ const STEP_EMBED_FIELDS = [
   'changeProposalFormat', 'captureTypes'
 ]
 
+async function buildStepIdRegistry(templateDir: string): Promise<Map<string, string>> {
+  const registry = new Map<string, string>() // uuid -> path
+  if (!existsSync(templateDir)) return registry
+  const entries = await readdir(templateDir, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const stepJsonPath = join(templateDir, entry.name, `${entry.name}.json`)
+    if (existsSync(stepJsonPath)) {
+      try {
+        const content = await readFile(stepJsonPath, 'utf-8')
+        const data = JSON.parse(content)
+        if (data.type === 'step' && data.id) {
+          registry.set(data.id, stepJsonPath)
+        }
+      } catch { /* skip invalid files */ }
+    }
+  }
+  return registry
+}
+
 async function resolveStepDefinitions(template: any, templateDir: string) {
   if (!template.steps || !Array.isArray(template.steps)) return
+  const registry = await buildStepIdRegistry(templateDir)
   for (const step of template.steps) {
     if (!step.stepRef) continue
     if (step.stepDefinition && Object.keys(step.stepDefinition).length > 0) continue
-    const stepJsonPath = join(templateDir, step.stepRef, `${step.stepRef}.json`)
-    if (existsSync(stepJsonPath)) {
+    const stepJsonPath = registry.get(step.stepRef)
+    if (stepJsonPath && existsSync(stepJsonPath)) {
       try {
         const stepContent = await readFile(stepJsonPath, 'utf-8')
         const stepData = JSON.parse(stepContent)
@@ -647,7 +668,7 @@ async function resolveStepDefinitions(template: any, templateDir: string) {
         }
         step.stepDefinition = embedded
       } catch (err) {
-        console.error(`Error resolving step definition: ${stepJsonPath}`, err)
+        console.error(`Error resolving step definition UUID ${step.stepRef}: ${stepJsonPath}`, err)
       }
     }
   }

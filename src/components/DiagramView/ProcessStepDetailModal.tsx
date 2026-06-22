@@ -100,8 +100,8 @@ export function ProcessStepDetailModal({ steps, currentIndex, onNavigate, onClos
             </span>
             <div className="min-w-0">
               <h2 className="text-base font-semibold text-text-primary truncate">{step.name}</h2>
-              {step.stepRef && (
-                <p className="text-xs font-mono text-text-muted truncate">{step.stepRef}</p>
+              {(step.stepRefName || step.stepRef) && (
+                <p className="text-xs font-mono text-text-muted truncate" title={step.stepRef || undefined}>{step.stepRefName || step.stepRef}</p>
               )}
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
