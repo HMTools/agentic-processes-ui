@@ -16560,6 +16560,7 @@ function uninstallChannelGlobally() {
 }
 const __filename$1 = fileURLToPath(import.meta.url);
 const __dirname$1 = dirname(__filename$1);
+const AGENTIC_PROCESSES_REPO = join(__dirname$1, "..", "..", "agentic-processes");
 let mainWindow = null;
 let fileContentWatchers = /* @__PURE__ */ new Map();
 let agentManagerInitialized = false;
@@ -16936,7 +16937,7 @@ ipcMain.handle("answer-question", async (_event, processPath, questionId, answer
       sanitizedQuestionId,
       sanitizedAnswer
     ], {
-      cwd: join("C:", "Projects", "HM", "agentic-processes")
+      cwd: AGENTIC_PROCESSES_REPO
     });
     let stdout = "";
     let stderr = "";
@@ -16981,7 +16982,7 @@ ipcMain.handle("complete-question", async (_event, processPath, questionId) => {
       processPath,
       sanitizedQuestionId
     ], {
-      cwd: join("C:", "Projects", "HM", "agentic-processes")
+      cwd: AGENTIC_PROCESSES_REPO
     });
     let stdout = "";
     let stderr = "";
@@ -17480,7 +17481,7 @@ async function runMarketplaceCommand(args) {
   const { spawn: spawn2 } = await import("child_process");
   return new Promise((resolve2) => {
     const proc = spawn2("python3", ["scripts/template_manager.py", ...args], {
-      cwd: join("C:", "Projects", "HM", "agentic-processes")
+      cwd: AGENTIC_PROCESSES_REPO
     });
     let stdout = "";
     let stderr = "";

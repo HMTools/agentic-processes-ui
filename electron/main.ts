@@ -35,6 +35,9 @@ import {
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
+// dist-electron/main.js -> agentic-processes-ui -> HM -> agentic-processes (sibling repo)
+const AGENTIC_PROCESSES_REPO = join(__dirname, '..', '..', 'agentic-processes')
+
 let mainWindow: BrowserWindow | null = null
 let fileContentWatchers: Map<string, FSWatcher> = new Map()
 let agentManagerInitialized = false
@@ -507,7 +510,7 @@ ipcMain.handle('answer-question', async (_event, processPath: string, questionId
       sanitizedQuestionId,
       sanitizedAnswer
     ], {
-      cwd: join('C:', 'Projects', 'HM', 'agentic-processes')
+      cwd: AGENTIC_PROCESSES_REPO
     })
 
     let stdout = ''
@@ -567,7 +570,7 @@ ipcMain.handle('complete-question', async (_event, processPath: string, question
       processPath,
       sanitizedQuestionId
     ], {
-      cwd: join('C:', 'Projects', 'HM', 'agentic-processes')
+      cwd: AGENTIC_PROCESSES_REPO
     })
 
     let stdout = ''
@@ -1176,7 +1179,7 @@ async function runMarketplaceCommand(args: string[]): Promise<{ success: boolean
   const { spawn } = await import('child_process')
   return new Promise((resolve) => {
     const proc = spawn('python3', ['scripts/template_manager.py', ...args], {
-      cwd: join('C:', 'Projects', 'HM', 'agentic-processes')
+      cwd: AGENTIC_PROCESSES_REPO
     })
 
     let stdout = ''
