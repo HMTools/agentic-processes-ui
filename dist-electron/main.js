@@ -16573,12 +16573,13 @@ function broadcastToRenderers(channel, data) {
   }
 }
 function createWindow() {
+  const iconPath = join(__dirname$1, "../images/icon.png");
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1e3,
     minHeight: 700,
-    icon: join(__dirname$1, "../images/icon.png"),
+    icon: existsSync(iconPath) ? iconPath : void 0,
     backgroundColor: "#0d1117",
     titleBarStyle: "hiddenInset",
     webPreferences: {
@@ -16608,12 +16609,13 @@ function createTerminalWindow(sessionId, processPath, processName) {
     existing.focus();
     return;
   }
+  const iconPath = join(__dirname$1, "../images/icon.png");
   const terminalWin = new BrowserWindow({
     width: 800,
     height: 600,
     minWidth: 600,
     minHeight: 400,
-    icon: join(__dirname$1, "../images/icon.png"),
+    icon: existsSync(iconPath) ? iconPath : void 0,
     backgroundColor: "#0d1117",
     title: processName || "Agent Terminal",
     webPreferences: {
@@ -17041,13 +17043,34 @@ const STEP_EMBED_FIELDS = [
   "changeProposalFormat",
   "captureTypes"
 ];
+async function buildStepIdRegistry(templateDir) {
+  const registry = /* @__PURE__ */ new Map();
+  if (!existsSync(templateDir)) return registry;
+  const entries = await readdir(templateDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const stepJsonPath = join(templateDir, entry.name, `${entry.name}.json`);
+    if (existsSync(stepJsonPath)) {
+      try {
+        const content = await readFile(stepJsonPath, "utf-8");
+        const data = JSON.parse(content);
+        if (data.type === "step" && data.id) {
+          registry.set(data.id, stepJsonPath);
+        }
+      } catch {
+      }
+    }
+  }
+  return registry;
+}
 async function resolveStepDefinitions(template, templateDir) {
   if (!template.steps || !Array.isArray(template.steps)) return;
+  const registry = await buildStepIdRegistry(templateDir);
   for (const step of template.steps) {
     if (!step.stepRef) continue;
     if (step.stepDefinition && Object.keys(step.stepDefinition).length > 0) continue;
-    const stepJsonPath = join(templateDir, step.stepRef, `${step.stepRef}.json`);
-    if (existsSync(stepJsonPath)) {
+    const stepJsonPath = registry.get(step.stepRef);
+    if (stepJsonPath && existsSync(stepJsonPath)) {
       try {
         const stepContent = await readFile(stepJsonPath, "utf-8");
         const stepData = JSON.parse(stepContent);
@@ -17059,7 +17082,7 @@ async function resolveStepDefinitions(template, templateDir) {
         }
         step.stepDefinition = embedded;
       } catch (err) {
-        console.error(`Error resolving step definition: ${stepJsonPath}`, err);
+        console.error(`Error resolving step definition UUID ${step.stepRef}: ${stepJsonPath}`, err);
       }
     }
   }
@@ -17398,12 +17421,13 @@ function createOverviewWindow() {
     existing.focus();
     return;
   }
+  const iconPath = join(__dirname$1, "../images/icon.png");
   const overviewWin = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    icon: join(__dirname$1, "../images/icon.png"),
+    icon: existsSync(iconPath) ? iconPath : void 0,
     backgroundColor: "#0d1117",
     title: "Processes Overview",
     webPreferences: {
@@ -17556,8 +17580,15 @@ if (!gotLock) {
     }
   });
 }
+app.name = "Agentic Processes UI";
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  if (process.platform === "darwin") {
+    const iconPath = join(__dirname$1, "../images/icon.png");
+    if (existsSync(iconPath)) {
+      app.dock.setIcon(iconPath);
+    }
+  }
   createWindow();
   initializeChannelManager();
   if (!process.env.VITE_DEV_SERVER_URL) {

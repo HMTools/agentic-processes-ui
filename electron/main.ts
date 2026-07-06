@@ -52,12 +52,13 @@ function broadcastToRenderers(channel: string, data: unknown) {
 }
 
 function createWindow() {
+  const iconPath = join(__dirname, '../images/icon.png')
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1000,
     minHeight: 700,
-    icon: join(__dirname, '../images/icon.png'),
+    icon: existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#0d1117',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
@@ -97,12 +98,13 @@ function createTerminalWindow(sessionId: string, processPath: string, processNam
     return
   }
 
+  const iconPath = join(__dirname, '../images/icon.png')
   const terminalWin = new BrowserWindow({
     width: 800,
     height: 600,
     minWidth: 600,
     minHeight: 400,
-    icon: join(__dirname, '../images/icon.png'),
+    icon: existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#0d1117',
     title: processName || 'Agent Terminal',
     webPreferences: {
@@ -1102,12 +1104,13 @@ function createOverviewWindow() {
     return
   }
 
+  const iconPath = join(__dirname, '../images/icon.png')
   const overviewWin = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    icon: join(__dirname, '../images/icon.png'),
+    icon: existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#0d1117',
     title: 'Processes Overview',
     webPreferences: {
@@ -1276,10 +1279,21 @@ if (!gotLock) {
   })
 }
 
+// Set the app name (shows in Dock and menu)
+app.name = 'Agentic Processes UI'
+
 // App lifecycle
 app.whenReady().then(() => {
   // Remove default menu bar
   Menu.setApplicationMenu(null)
+
+  // Set the Dock icon on macOS
+  if (process.platform === 'darwin') {
+    const iconPath = join(__dirname, '../images/icon.png')
+    if (existsSync(iconPath)) {
+      app.dock.setIcon(iconPath)
+    }
+  }
 
   createWindow()
 
