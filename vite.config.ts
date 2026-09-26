@@ -17,7 +17,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['electron', 'chokidar', 'node-pty']
+              external: ['electron', 'chokidar']
             }
           }
         }

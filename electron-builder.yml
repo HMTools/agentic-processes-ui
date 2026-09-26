@@ -11,23 +11,6 @@ files:
   - dist/**/*
   - dist-electron/**/*
 
-# Channel-server bundled as an extra resource (outside asar)
-extraResources:
-  - from: channel-server/dist/
-    to: channel-server/dist/
-    filter:
-      - "**/*"
-  - from: channel-server/node_modules/
-    to: channel-server/node_modules/
-    filter:
-      - "**/*"
-  - from: channel-server/package.json
-    to: channel-server/package.json
-
-# node-pty native binaries must be outside asar
-asarUnpack:
-  - "**/node_modules/node-pty/**"
-
 # Publish to GitHub Releases
 publish:
   provider: github

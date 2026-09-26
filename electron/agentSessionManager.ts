@@ -1,13 +1,8 @@
-import { spawn, type IPty } from 'node-pty'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
-import { platform } from 'os'
-import { execSync, exec } from 'child_process'
-import { promisify } from 'util'
-
-const execAsync = promisify(exec)
 import { existsSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
+import { getHerdrClient } from './herdrClient'
 
 // ============================================================================
 // Types
@@ -36,8 +31,13 @@ export interface AgentSession {
 }
 
 export interface AgentSessionInternal extends AgentSession {
-  pty: IPty | null
-  outputBuffer: string  // Buffer to track recent PTY output for pattern matching
+  herdrPaneId: string | null
+  herdrWorkspaceId: string | null
+  herdrTabId: string | null
+  herdrAgentId: string | null
+  outputBuffer: string // last known full pane snapshot, used to diff-emit new output
+  pollTimer: NodeJS.Timeout | null
+  resizeDebounce: NodeJS.Timeout | null
 }
 
 export interface AgentOutputEvent {
@@ -49,255 +49,6 @@ export interface AgentStatusEvent {
   sessionId: string
   status: AgentSessionStatus
   error?: string
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Read a registry value using reg query command
- */
-function readRegistryValue(key: string, valueName: string): string | null {
-  try {
-    const output = execSync(`reg query "${key}" /v "${valueName}"`, { 
-      encoding: 'utf8', 
-      windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe']
-    })
-    // Parse the output - format is: "    ValueName    REG_SZ    Value"
-    const match = output.match(/REG_(?:SZ|EXPAND_SZ)\s+(.+)$/m)
-    return match ? match[1].trim() : null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Get fresh PATH from Windows Registry (User + System paths)
- * This reads the actual current PATH, not the stale one from process.env
- */
-function getFreshWindowsPath(): string {
-  try {
-    // Read system PATH
-    const systemPath = readRegistryValue(
-      'HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment',
-      'Path'
-    ) || ''
-    
-    // Read user PATH
-    const userPath = readRegistryValue(
-      'HKEY_CURRENT_USER\\Environment',
-      'Path'
-    ) || ''
-    
-    // Combine them (user paths typically come first)
-    const combinedPath = userPath && systemPath 
-      ? `${userPath};${systemPath}`
-      : userPath || systemPath
-    
-    return combinedPath
-  } catch {
-    // Fall back to process.env PATH
-    return process.env.PATH || process.env.Path || ''
-  }
-}
-
-/**
- * Get fresh environment variables on Windows with updated PATH from registry
- */
-function getFreshWindowsEnv(): NodeJS.ProcessEnv {
-  // Start with process.env as base
-  const env = { ...process.env }
-  
-  // Override PATH with fresh value from registry
-  const freshPath = getFreshWindowsPath()
-  if (freshPath) {
-    env.PATH = freshPath
-    env.Path = freshPath  // Windows uses both
-  }
-  
-  return env
-}
-
-
-/**
- * Escape special regex characters in a string for literal matching
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-// ============================================================================
-// Cross-platform process discovery
-// ============================================================================
-
-interface OsProcess {
-  pid: number
-  parentPid: number
-  commandLine: string
-}
-
-/**
- * Find running Claude Code processes across platforms.
- * Windows: uses wmic (with PowerShell fallback).
- * macOS/Linux: uses ps -eo pid,ppid,args.
- * Async to avoid blocking the Electron main process.
- */
-async function findClaudeProcesses(): Promise<OsProcess[]> {
-  const isWindows = platform() === 'win32'
-
-  try {
-    if (isWindows) {
-      return await findClaudeProcessesWindows()
-    } else {
-      return await findClaudeProcessesUnix()
-    }
-  } catch {
-    return []
-  }
-}
-
-async function findClaudeProcessesWindows(): Promise<OsProcess[]> {
-  let output: string
-
-  try {
-    // Primary: wmic
-    const result = await execAsync(
-      'wmic process where "name like \'%claude%\'" get ProcessId,ParentProcessId,CommandLine /format:csv',
-      { encoding: 'utf8', windowsHide: true, timeout: 10000 }
-    )
-    output = result.stdout
-  } catch {
-    try {
-      // Fallback: PowerShell Get-CimInstance
-      const result = await execAsync(
-        'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name like \'%claude%\'\\" | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"',
-        { encoding: 'utf8', windowsHide: true, timeout: 15000 }
-      )
-      output = result.stdout
-    } catch {
-      return []
-    }
-  }
-
-  const processes: OsProcess[] = []
-  const lines = output.trim().split('\n').filter(l => l.trim())
-
-  for (const line of lines) {
-    // wmic CSV format: Node,CommandLine,ParentProcessId,ProcessId
-    // PowerShell CSV format: "ProcessId","ParentProcessId","CommandLine"
-    const parts = line.split(',')
-    if (parts.length < 3) continue
-
-    // Try to extract numeric PID and ParentPID
-    const numbers = parts.map(p => parseInt(p.replace(/"/g, '').trim(), 10)).filter(n => !isNaN(n))
-    if (numbers.length < 2) continue
-
-    // For wmic CSV: last two numbers are ParentProcessId, ProcessId
-    // For PowerShell CSV: first two numbers are ProcessId, ParentProcessId
-    // We detect format by checking if the line starts with a node name (wmic) or a number (PowerShell)
-    const firstField = parts[0].replace(/"/g, '').trim()
-    const isWmicFormat = isNaN(parseInt(firstField, 10))
-
-    let pid: number, parentPid: number, commandLine: string
-    if (isWmicFormat) {
-      // wmic: Node,CommandLine,ParentProcessId,ProcessId
-      pid = numbers[numbers.length - 1]
-      parentPid = numbers[numbers.length - 2]
-      commandLine = parts.slice(1, -2).join(',').replace(/"/g, '').trim()
-    } else {
-      // PowerShell: "ProcessId","ParentProcessId","CommandLine"
-      pid = numbers[0]
-      parentPid = numbers[1]
-      commandLine = parts.slice(2).join(',').replace(/"/g, '').trim()
-    }
-
-    if (pid > 0) {
-      processes.push({ pid, parentPid, commandLine })
-    }
-  }
-
-  return processes
-}
-
-async function findClaudeProcessesUnix(): Promise<OsProcess[]> {
-  const result = await execAsync('ps -eo pid,ppid,args', {
-    encoding: 'utf8',
-    timeout: 5000
-  })
-
-  const processes: OsProcess[] = []
-  const lines = result.stdout.trim().split('\n').slice(1) // Skip header
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    const match = trimmed.match(/^(\d+)\s+(\d+)\s+(.+)$/)
-    if (!match) continue
-
-    const commandLine = match[3]
-    // Match processes with 'claude' in the command, excluding grep itself
-    if (/claude/i.test(commandLine) && !/grep/i.test(commandLine)) {
-      processes.push({
-        pid: parseInt(match[1], 10),
-        parentPid: parseInt(match[2], 10),
-        commandLine
-      })
-    }
-  }
-
-  return processes
-}
-
-/**
- * Check if a PID is a descendant of any of the given ancestor PIDs.
- * Used to determine if a claude process is managed by this app.
- */
-function isDescendantOf(pid: number, ancestorPids: Set<number>, allProcesses: OsProcess[]): boolean {
-  const processMap = new Map(allProcesses.map(p => [p.pid, p]))
-  let current = pid
-  const visited = new Set<number>()
-
-  while (current > 1 && !visited.has(current)) {
-    visited.add(current)
-    if (ancestorPids.has(current)) return true
-    const proc = processMap.get(current)
-    if (!proc) break
-    current = proc.parentPid
-  }
-
-  return false
-}
-
-/**
- * Kill a process by PID, cross-platform.
- * On Windows, kills the entire process tree.
- */
-function killProcessByPid(pid: number): void {
-  const isWindows = platform() === 'win32'
-
-  if (isWindows) {
-    try {
-      execSync(`taskkill /PID ${pid} /T /F`, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
-    } catch {
-      // Process may have already exited
-    }
-  } else {
-    try {
-      process.kill(pid, 'SIGTERM')
-    } catch {
-      // Process may have already exited
-    }
-    // Force kill after a short delay if still alive
-    setTimeout(() => {
-      try {
-        process.kill(pid, 0) // Check if alive
-        process.kill(pid, 'SIGKILL')
-      } catch {
-        // Already dead
-      }
-    }, 1000)
-  }
 }
 
 export interface ExternalSession {
@@ -342,20 +93,45 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   }
 }
 
+// Escape special regex characters in a string for literal matching (used to
+// build pane.wait_for_output patterns from literal echoed text).
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// ponytail: no Herdr push event streams raw pane output (events.subscribe's
+// documented event list only has lifecycle/status events, e.g.
+// pane.agent_status_changed, pane.output_matched-on-pattern-match). Forwarding
+// live output to the renderer therefore polls `pane.read` and diff-emits new
+// bytes. Ceiling: up to POLL_INTERVAL_MS latency per output chunk; upgrade to
+// a push-based stream if/when Herdr exposes one.
+const POLL_INTERVAL_MS = 200
+
 // ============================================================================
 // Agent Session Manager
 // ============================================================================
 
 class AgentSessionManager extends EventEmitter {
   private sessions: Map<string, AgentSessionInternal> = new Map()
-  private shell: string
 
   constructor() {
     super()
-    // Determine shell based on platform
-    this.shell = platform() === 'win32' 
-      ? 'cmd.exe' 
-      : process.env.SHELL || '/bin/bash'
+    // On Herdr reconnect, pane ids from before the drop are no longer valid —
+    // mark all sessions as errored rather than trying to remap them.
+    getHerdrClient().on('connection-status', ({ status }: { status: string }) => {
+      if (status !== 'disconnected') return
+      for (const session of this.sessions.values()) {
+        if (session.status === 'running' || session.status === 'starting') {
+          this.stopPolling(session)
+          session.status = 'error'
+          this.emit('status', {
+            sessionId: session.id,
+            status: 'error',
+            error: 'Herdr disconnected'
+          } as AgentStatusEvent)
+        }
+      }
+    })
   }
 
   /**
@@ -377,7 +153,7 @@ class AgentSessionManager extends EventEmitter {
     options?: { resumeSessionId?: string; permissionMode?: 'regular' | 'allow-all' }
   ): Promise<AgentSession> {
     const config = AGENT_CONFIGS[agentType]
-    
+
     if (!config.available) {
       throw new Error(`Agent type '${agentType}' is not available yet`)
     }
@@ -391,32 +167,29 @@ class AgentSessionManager extends EventEmitter {
       status: 'starting',
       createdAt: new Date().toISOString(),
       workingDirectory,
-      pty: null,
-      outputBuffer: ''
+      herdrPaneId: null,
+      herdrWorkspaceId: null,
+      herdrTabId: null,
+      herdrAgentId: null,
+      outputBuffer: '',
+      pollTimer: null,
+      resizeDebounce: null
     }
 
     this.sessions.set(sessionId, session)
 
     try {
-      // Build spawn options based on platform
-      const isWindows = platform() === 'win32'
-      // On Windows, get fresh environment from registry to pick up newly installed CLIs
-      const baseEnv = isWindows ? getFreshWindowsEnv() : process.env
-      const envOptions = isWindows
-        ? baseEnv
-        : { ...baseEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor' }
+      const client = getHerdrClient()
 
       // Resolve working directory - auto-fix if metadata.projectPaths[0] is stale (e.g. from another machine)
       let resolvedCwd = workingDirectory
       if (!existsSync(resolvedCwd)) {
-        // Try to read projectPaths from process.json for CWD derivation
         if (processPath) {
           try {
             const processDir = dirname(processPath)
             const processJsonPath = join(processDir, 'process.json')
             if (existsSync(processJsonPath)) {
               const processContent = JSON.parse(readFileSync(processJsonPath, 'utf-8'))
-              // Try new projectPaths (array) first, then legacy projectPath (string)
               const projectPaths = processContent.metadata?.projectPaths
               const legacyProjectPath = processContent.metadata?.projectPath
               const derivedPath = Array.isArray(projectPaths) && projectPaths.length > 0
@@ -439,100 +212,85 @@ class AgentSessionManager extends EventEmitter {
         }
       }
 
-      // Spawn the PTY process
-      const pty = spawn(this.shell, [], {
-        name: 'xterm-256color',
-        cols: 120,
-        rows: 30,
+      // Create an isolated workspace/tab/pane for this session via Herdr
+      const workspace = await client.call<{ workspace_id: string }>('workspace.create', {
         cwd: resolvedCwd,
-        env: envOptions,
-        useConpty: isWindows  // Use Windows ConPTY for better compatibility
+        label: config.displayName
       })
+      session.herdrWorkspaceId = workspace.workspace_id
 
-      session.pty = pty
-
-      // Handle PTY output
-      pty.onData((data: string) => {
-        // Append to output buffer (keep last 10KB to prevent memory issues)
-        session.outputBuffer += data
-        if (session.outputBuffer.length > 10240) {
-          session.outputBuffer = session.outputBuffer.slice(-10240)
-        }
-        
-        this.emit('output', {
-          sessionId,
-          data
-        } as AgentOutputEvent)
+      const tab = await client.call<{ tab_id: string }>('tab.create', {
+        workspace_id: workspace.workspace_id,
+        cwd: resolvedCwd,
+        focus: false
       })
+      session.herdrTabId = tab.tab_id
 
-      // Handle PTY exit
-      pty.onExit(({ exitCode }) => {
-        const currentSession = this.sessions.get(sessionId)
-        if (currentSession) {
-          // If already stopped (killed intentionally), just clean up the pty ref
-          if (currentSession.status === 'stopped') {
-            currentSession.pty = null
-            return
-          }
-          currentSession.status = exitCode === 0 ? 'stopped' : 'error'
-          currentSession.pty = null
-          this.emit('status', {
-            sessionId,
-            status: currentSession.status,
-            error: exitCode !== 0 ? `Process exited with code ${exitCode}` : undefined
-          } as AgentStatusEvent)
-        }
+      const paneList = await client.call<{ panes: Array<{ pane_id: string }> }>('pane.list', {
+        tab_id: tab.tab_id
       })
+      const paneId = paneList.panes?.[0]?.pane_id
+      if (!paneId) {
+        throw new Error('Herdr did not return a pane for the new tab')
+      }
+      session.herdrPaneId = paneId
 
-      // Give the shell a moment to initialize, then start the agent
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      // Start the agent CLI
+      // Build the agent CLI command
       let agentCommand = config.args?.length
         ? `${config.command} ${config.args.join(' ')}`
         : config.command
 
-      // If allow-all permission mode, add --dangerously-skip-permissions flag
       if (options?.permissionMode === 'allow-all' && agentType === 'claude-code') {
         agentCommand = `${agentCommand} --dangerously-skip-permissions`
       }
 
-      // If resuming an existing Claude Code session, add --resume flag
       if (options?.resumeSessionId && agentType === 'claude-code') {
         agentCommand = `${agentCommand} --resume ${options.resumeSessionId}`
       }
 
-      // Use \r for shell command (cmd.exe/bash expects \r as Enter)
-      pty.write(`${agentCommand}\r`)
+      await client.call('pane.send_text', { pane_id: paneId, text: agentCommand })
+      await client.call('pane.send_keys', { pane_id: paneId, keys: ['Enter'] })
 
-      // Wait for agent to be ready by detecting its output
-      // Claude Code shows "? for shortcuts" when ready for input
-      // Use a generous timeout (30s) since first launch can be slow
-      const readyPattern = /[?>]\s*(for shortcuts|$)/
-      await this.waitForOutput(sessionId, readyPattern, 30000)
+      // Mark the pane as agent-managed so we can use agent.wait/agent.prompt
+      try {
+        const agentResult = await client.call<{ agent_id: string }>('agent.start', { pane_id: paneId })
+        session.herdrAgentId = agentResult?.agent_id ?? null
+      } catch {
+        // Agent detection may not be ready immediately; sendPrompt falls back
+        // to pane-level calls when herdrAgentId is unset.
+      }
 
-      // Small additional delay to ensure the input is truly ready
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // Wait for the agent to be ready (idle) before considering it running.
+      if (session.herdrAgentId) {
+        await client.call('agent.wait', { agent_id: session.herdrAgentId, until: 'idle', timeout_ms: 30000 }).catch(() => {})
+      } else {
+        await client.call('pane.wait_for_output', { pane_id: paneId, pattern: '[?>]\\s*(for shortcuts|$)', timeout_ms: 30000 }).catch(() => {})
+      }
+
+      // Guard against killSession() racing this in-flight createSession()
+      if (session.status === 'stopped') {
+        return this.getSessionPublic(session)
+      }
+
+      this.startPolling(session)
 
       session.status = 'running'
-      this.emit('status', {
-        sessionId,
-        status: 'running'
-      } as AgentStatusEvent)
+      this.emit('status', { sessionId, status: 'running' } as AgentStatusEvent)
 
-      // If a process path was provided, attach to it after agent starts
       if (processPath) {
         await this.attachToProcess(sessionId, processPath)
       }
 
       return this.getSessionPublic(session)
     } catch (error) {
-      session.status = 'error'
-      this.emit('status', {
-        sessionId,
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      } as AgentStatusEvent)
+      if (session.status !== 'stopped') {
+        session.status = 'error'
+        this.emit('status', {
+          sessionId,
+          status: 'error',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        } as AgentStatusEvent)
+      }
       throw error
     }
   }
@@ -542,47 +300,38 @@ class AgentSessionManager extends EventEmitter {
    */
   async attachToProcess(sessionId: string, processPath: string): Promise<void> {
     const session = this.sessions.get(sessionId)
-    
+
     if (!session) {
       throw new Error(`Session '${sessionId}' not found`)
     }
 
-    if (!session.pty) {
-      throw new Error(`Session '${sessionId}' has no active PTY`)
+    if (!session.herdrPaneId) {
+      throw new Error(`Session '${sessionId}' has no active Herdr pane`)
     }
 
     const config = AGENT_CONFIGS[session.agentType]
     const attachCommand = config.processAttachCommand(processPath)
-    
+
     if (!attachCommand) {
       throw new Error(`Agent type '${session.agentType}' does not support process attachment`)
     }
 
-    // Clear the output buffer before writing so we can detect the echo
-    this.clearOutputBuffer(sessionId)
+    const client = getHerdrClient()
+    await client.call('pane.send_text', { pane_id: session.herdrPaneId, text: attachCommand })
 
-    // Write the attach command text first
-    session.pty.write(attachCommand)
-    
-    // Wait for the command to appear in output (agent echoes input)
-    // Use a pattern that matches the end of the command
-    const commandEnd = attachCommand.slice(-20)  // Last 20 chars should be enough
-    const echoPattern = new RegExp(escapeRegex(commandEnd))
-    
-    // Wait for echo with 5 second timeout, then send Enter regardless
-    await this.waitForOutput(sessionId, echoPattern, 5000)
-    
-    // Small additional delay to ensure the agent is ready
-    await new Promise(resolve => setTimeout(resolve, 100))
-    
-    // Send Enter key (carriage return) to submit
-    session.pty.write('\r')
+    // Wait for the command to be echoed back before submitting (best-effort;
+    // proceeds regardless of timeout, same as the old PTY heuristic).
+    const commandEnd = attachCommand.slice(-20)
+    await client.call('pane.wait_for_output', {
+      pane_id: session.herdrPaneId,
+      pattern: escapeRegex(commandEnd),
+      timeout_ms: 5000
+    }).catch(() => {})
+
+    await client.call('pane.send_keys', { pane_id: session.herdrPaneId, keys: ['Enter'] })
     session.attachedProcessPath = processPath
 
-    this.emit('status', {
-      sessionId,
-      status: session.status
-    } as AgentStatusEvent)
+    this.emit('status', { sessionId, status: session.status } as AgentStatusEvent)
   }
 
   /**
@@ -590,61 +339,73 @@ class AgentSessionManager extends EventEmitter {
    */
   async sendPrompt(sessionId: string, prompt: string): Promise<void> {
     const session = this.sessions.get(sessionId)
-    
+
     if (!session) {
       throw new Error(`Session '${sessionId}' not found`)
     }
 
-    if (!session.pty) {
-      throw new Error(`Session '${sessionId}' has no active PTY`)
+    if (!session.herdrPaneId) {
+      throw new Error(`Session '${sessionId}' has no active Herdr pane`)
     }
 
     if (session.status !== 'running') {
       throw new Error(`Session '${sessionId}' is not running (status: ${session.status})`)
     }
 
-    // Clear the output buffer before writing so we can detect the echo
-    this.clearOutputBuffer(sessionId)
+    const client = getHerdrClient()
 
-    // Write the prompt text first
-    session.pty.write(prompt)
-    
-    // Wait for the prompt text to appear in output (agent echoes input)
-    // Use a pattern that matches the last part of the prompt to handle partial echoes
-    const promptEnd = prompt.slice(-20)  // Last 20 chars should be enough
-    const echoPattern = new RegExp(escapeRegex(promptEnd))
-    
-    // Wait for echo with 5 second timeout, then send Enter regardless
-    await this.waitForOutput(sessionId, echoPattern, 5000)
-    
-    // Small additional delay to ensure the agent is ready
-    await new Promise(resolve => setTimeout(resolve, 100))
-    
-    // Send Enter key (carriage return) to submit
-    // \r (carriage return) submits the prompt
-    session.pty.write('\r')
-  }
-
-  /**
-   * Resize the PTY terminal
-   */
-  resizeTerminal(sessionId: string, cols: number, rows: number): void {
-    const session = this.sessions.get(sessionId)
-    
-    if (session?.pty) {
-      session.pty.resize(cols, rows)
+    if (session.herdrAgentId) {
+      // agent.prompt supports an inline wait — no separate echo detection needed.
+      await client.call('agent.prompt', {
+        agent_id: session.herdrAgentId,
+        text: prompt,
+        wait: { until: 'idle', timeout_ms: 15000 }
+      })
+      return
     }
+
+    // Fallback: pane-level send + wait_for_output for the echo, then submit.
+    await client.call('pane.send_text', { pane_id: session.herdrPaneId, text: prompt })
+    const promptEnd = prompt.slice(-20)
+    await client.call('pane.wait_for_output', {
+      pane_id: session.herdrPaneId,
+      pattern: escapeRegex(promptEnd),
+      timeout_ms: 5000
+    }).catch(() => {})
+    await client.call('pane.send_keys', { pane_id: session.herdrPaneId, keys: ['Enter'] })
   }
 
   /**
-   * Send raw input to the PTY (for keyboard events)
+   * Resize the terminal.
+   * ponytail: Herdr's `pane.resize` takes a split direction + ratio (0-1), not
+   * a terminal character grid (cols/rows) like node-pty's resize did — the two
+   * concepts don't map. There is no known Herdr call for "set this pane's PTY
+   * to N cols by M rows" (Herdr owns pane sizing via its own layout). This is
+   * therefore a no-op kept debounced/trailing-edge per the approved plan so
+   * the call site doesn't need to change; upgrade if Herdr adds a real
+   * grid-resize method.
+   */
+  resizeTerminal(sessionId: string, _cols: number, _rows: number): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+
+    if (session.resizeDebounce) clearTimeout(session.resizeDebounce)
+    session.resizeDebounce = setTimeout(() => {
+      session.resizeDebounce = null
+      // Intentionally a no-op against Herdr (see doc comment above).
+    }, 150)
+  }
+
+  /**
+   * Send raw input to the pane (for keyboard events)
    */
   sendInput(sessionId: string, data: string): void {
     const session = this.sessions.get(sessionId)
-    
-    if (session?.pty) {
-      session.pty.write(data)
-    }
+    if (!session?.herdrPaneId) return
+
+    getHerdrClient().call('pane.send_input', { pane_id: session.herdrPaneId, text: data }).catch(() => {
+      // Best-effort; matches old sendInput's fire-and-forget semantics.
+    })
   }
 
   /**
@@ -652,21 +413,25 @@ class AgentSessionManager extends EventEmitter {
    */
   killSession(sessionId: string): void {
     const session = this.sessions.get(sessionId)
-    
+
     if (!session) {
       return
     }
 
-    if (session.pty) {
-      session.pty.kill()
-      session.pty = null
+    this.stopPolling(session)
+
+    const paneId = session.herdrPaneId
+    const tabId = session.herdrTabId
+    session.herdrPaneId = null
+
+    if (paneId) {
+      const client = getHerdrClient()
+      client.call('pane.close', { pane_id: paneId }).catch(() => {})
+      if (tabId) client.call('tab.close', { tab_id: tabId }).catch(() => {})
     }
 
     session.status = 'stopped'
-    this.emit('status', {
-      sessionId,
-      status: 'stopped'
-    } as AgentStatusEvent)
+    this.emit('status', { sessionId, status: 'stopped' } as AgentStatusEvent)
   }
 
   /**
@@ -695,9 +460,9 @@ class AgentSessionManager extends EventEmitter {
 
   /**
    * Discover external Claude Code sessions attached to active processes.
-   * Detection is purely file-based: if a .session file exists in the process
-   * folder and this app doesn't have a managed session for it, it's external.
-   * The OS process scan is deferred to migration time.
+   * Detection is file-based (.session file in the process folder); PIDs are
+   * enriched, best-effort, via Herdr's own pane/process bookkeeping
+   * (pane.list + pane.process_info) instead of OS-level ps/registry scanning.
    */
   async discoverExternalSessions(
     activeProcesses: ActiveProcessInfo[]
@@ -705,7 +470,6 @@ class AgentSessionManager extends EventEmitter {
     const result = new Map<string, ExternalSession>()
 
     for (const activeProc of activeProcesses) {
-      // Read .session file from the process folder (sibling of process.json)
       const processDir = dirname(activeProc.path)
       const sessionFilePath = join(processDir, '.session')
       let realSessionId: string | null = null
@@ -720,11 +484,9 @@ class AgentSessionManager extends EventEmitter {
 
       if (!realSessionId) continue
 
-      // Skip if this process already has a session managed by our app
       const managedSessions = this.getSessionsForProcess(activeProc.path)
       if (managedSessions.some(s => s.status === 'running' || s.status === 'starting')) continue
 
-      // .session file exists and no managed session — this is an external session
       result.set(activeProc.path, {
         pid: 0,
         commandLine: '',
@@ -734,40 +496,40 @@ class AgentSessionManager extends EventEmitter {
       })
     }
 
-    // Enrich with real PIDs from OS process scan (best-effort, non-blocking)
+    // Enrich with real PIDs via Herdr's pane bookkeeping (best-effort, non-blocking)
     if (result.size > 0) {
       try {
-        const allOsProcesses = await findClaudeProcesses()
-        if (allOsProcesses.length > 0) {
-          // Exclude processes managed by this app
-          const managedPtyPids = new Set<number>()
-          for (const session of this.sessions.values()) {
-            if (session.pty) managedPtyPids.add(session.pty.pid)
-          }
-          const externalOsProcesses = allOsProcesses.filter(
-            proc => !isDescendantOf(proc.pid, managedPtyPids, allOsProcesses)
-          )
+        const managedPaneIds = new Set(
+          Array.from(this.sessions.values()).map(s => s.herdrPaneId).filter(Boolean) as string[]
+        )
+        const client = getHerdrClient()
+        const paneList = await client.call<{ panes: Array<{ pane_id: string; foreground_cwd?: string }> }>('pane.list', {})
+        const externalPanes = (paneList.panes ?? []).filter(p => !managedPaneIds.has(p.pane_id))
 
-          // Try to match external OS processes to discovered sessions
-          for (const [path, extSession] of result) {
-            for (const osProc of externalOsProcesses) {
-              // Match by session ID in command line, or by project path
-              const sessionMatch = osProc.commandLine.includes(extSession.claudeSessionId)
-              const cwdMatch = extSession.workingDirectory
-                && osProc.commandLine.replace(/\\/g, '/').includes(extSession.workingDirectory.replace(/\\/g, '/'))
+        for (const [, extSession] of result) {
+          for (const pane of externalPanes) {
+            try {
+              const info = await client.call<{ pid?: number; foreground_processes?: Array<{ pid: number; cmdline?: string }> }>(
+                'pane.process_info',
+                { pane_id: pane.pane_id }
+              )
+              const cwdMatch = extSession.workingDirectory && pane.foreground_cwd
+                && pane.foreground_cwd.replace(/\\/g, '/').includes(extSession.workingDirectory.replace(/\\/g, '/'))
+              const fg = info.foreground_processes?.[0]
+              const cmdlineMatch = fg?.cmdline?.includes(extSession.claudeSessionId)
 
-              if (sessionMatch || cwdMatch) {
-                extSession.pid = osProc.pid
-                extSession.commandLine = osProc.commandLine
+              if (cwdMatch || cmdlineMatch) {
+                extSession.pid = fg?.pid ?? info.pid ?? 0
+                extSession.commandLine = fg?.cmdline ?? ''
                 break
               }
+            } catch {
+              // Pane closed mid-poll or process_info unsupported — skip this pane.
             }
-
-            // No fallback guessing — only show PID when strictly matched
           }
         }
       } catch {
-        // OS scan failed — PID stays 0, detection still works
+        // Herdr scan failed — PID stays 0, detection still works via .session file
       }
     }
 
@@ -776,36 +538,49 @@ class AgentSessionManager extends EventEmitter {
 
   /**
    * Migrate an external Claude Code session into this app.
-   * Finds and kills the external process, then resumes the session in a new PTY.
+   * Finds (via Herdr pane bookkeeping) and closes the external pane, then
+   * resumes the session in a freshly created pane.
    */
   async migrateExternalSession(
     externalSession: ExternalSession,
     workingDirectory: string,
     options?: { permissionMode?: 'regular' | 'allow-all' }
   ): Promise<AgentSession> {
-    // Find and kill external claude processes at migration time
-    const allOsProcesses = await findClaudeProcesses()
-    if (allOsProcesses.length > 0) {
-      // Collect managed PTY PIDs to exclude
-      const managedPtyPids = new Set<number>()
-      for (const session of this.sessions.values()) {
-        if (session.pty) {
-          managedPtyPids.add(session.pty.pid)
-        }
-      }
+    try {
+      const client = getHerdrClient()
+      const managedPaneIds = new Set(
+        Array.from(this.sessions.values()).map(s => s.herdrPaneId).filter(Boolean) as string[]
+      )
+      const paneList = await client.call<{ panes: Array<{ pane_id: string; foreground_cwd?: string }> }>('pane.list', {})
+      const externalPanes = (paneList.panes ?? []).filter(p => !managedPaneIds.has(p.pane_id))
 
-      // Kill external (unmanaged) claude processes
-      for (const proc of allOsProcesses) {
-        if (!isDescendantOf(proc.pid, managedPtyPids, allOsProcesses)) {
-          killProcessByPid(proc.pid)
+      for (const pane of externalPanes) {
+        try {
+          const info = await client.call<{ foreground_processes?: Array<{ pid: number; cmdline?: string }> }>(
+            'pane.process_info',
+            { pane_id: pane.pane_id }
+          )
+          const fg = info.foreground_processes?.[0]
+          const matches = (fg?.pid && fg.pid === externalSession.pid)
+            || fg?.cmdline?.includes(externalSession.claudeSessionId)
+            || (externalSession.workingDirectory && pane.foreground_cwd
+              && pane.foreground_cwd.replace(/\\/g, '/').includes(externalSession.workingDirectory.replace(/\\/g, '/')))
+
+          if (matches) {
+            await client.call('pane.close', { pane_id: pane.pane_id }).catch(() => {})
+            break
+          }
+        } catch {
+          // process_info failed for this pane — skip it
         }
       }
+    } catch {
+      // Discovery/close best-effort only — proceed to resume regardless
     }
 
-    // Wait for the process to fully terminate
+    // Wait for the external process to fully terminate
     await new Promise(resolve => setTimeout(resolve, 1500))
 
-    // Resume the session inside a new PTY managed by this app
     return this.createSession(
       'claude-code',
       workingDirectory,
@@ -824,70 +599,60 @@ class AgentSessionManager extends EventEmitter {
     this.sessions.clear()
   }
 
-  /**
-   * Wait for a pattern to appear in the PTY output
-   * Returns true if pattern found, false if timeout
-   */
-  private waitForOutput(
-    sessionId: string, 
-    pattern: RegExp, 
-    timeoutMs: number = 5000
-  ): Promise<boolean> {
-    return new Promise((resolve) => {
-      const session = this.sessions.get(sessionId)
-      if (!session) {
-        resolve(false)
-        return
-      }
+  // -- Output polling (see POLL_INTERVAL_MS doc comment) ---------------------
 
-      // Check if pattern is already in the buffer
-      if (pattern.test(session.outputBuffer)) {
-        resolve(true)
-        return
-      }
+  private startPolling(session: AgentSessionInternal): void {
+    if (session.pollTimer) return
+    const client = getHerdrClient()
 
-      // Set up listener for new output
-      const checkOutput = (event: AgentOutputEvent) => {
-        if (event.sessionId !== sessionId) return
-        
-        const currentSession = this.sessions.get(sessionId)
-        if (currentSession && pattern.test(currentSession.outputBuffer)) {
-          cleanup()
-          resolve(true)
+    session.pollTimer = setInterval(async () => {
+      if (!session.herdrPaneId) return
+      try {
+        const read = await client.call<{ data?: string; text?: string }>('pane.read', {
+          pane_id: session.herdrPaneId,
+          source: 'recent-unwrapped'
+        })
+        const snapshot = read.data ?? read.text ?? ''
+        if (snapshot && snapshot !== session.outputBuffer) {
+          const newSuffix = snapshot.startsWith(session.outputBuffer)
+            ? snapshot.slice(session.outputBuffer.length)
+            : snapshot // buffer rotated/truncated upstream — emit the whole snapshot
+          session.outputBuffer = snapshot.length > 10240 ? snapshot.slice(-10240) : snapshot
+          if (newSuffix) {
+            this.emit('output', { sessionId: session.id, data: newSuffix } as AgentOutputEvent)
+          }
         }
+      } catch {
+        // Pane may have closed between polls — the status listener handles cleanup.
       }
-
-      // Set up timeout
-      const timeoutId = setTimeout(() => {
-        cleanup()
-        resolve(false)
-      }, timeoutMs)
-
-      // Cleanup function
-      const cleanup = () => {
-        clearTimeout(timeoutId)
-        this.off('output', checkOutput)
-      }
-
-      this.on('output', checkOutput)
-    })
+    }, POLL_INTERVAL_MS)
   }
 
-  /**
-   * Clear the output buffer for a session
-   */
-  private clearOutputBuffer(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
-    if (session) {
-      session.outputBuffer = ''
+  private stopPolling(session: AgentSessionInternal): void {
+    if (session.pollTimer) {
+      clearInterval(session.pollTimer)
+      session.pollTimer = null
+    }
+    if (session.resizeDebounce) {
+      clearTimeout(session.resizeDebounce)
+      session.resizeDebounce = null
     }
   }
 
   /**
-   * Convert internal session to public session (without PTY reference)
+   * Convert internal session to public session (without Herdr internals)
    */
   private getSessionPublic(session: AgentSessionInternal): AgentSession {
-    const { pty: _pty, outputBuffer: _buffer, ...publicSession } = session
+    const {
+      herdrPaneId: _paneId,
+      herdrWorkspaceId: _wsId,
+      herdrTabId: _tabId,
+      herdrAgentId: _agentId,
+      outputBuffer: _buffer,
+      pollTimer: _pollTimer,
+      resizeDebounce: _resizeDebounce,
+      ...publicSession
+    } = session
     return publicSession
   }
 }

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import type { ProcessSummary, ProcessInstance, ExternalSession } from '../../types'
 import { ProcessCard } from './ProcessCard'
 import { buildProcessTree, type ProcessTreeNode } from '../../utils/processTree'
-import { useChannels } from '../../hooks/useChannels'
+import { useHerdrStatus } from '../../hooks/useHerdrStatus'
 import logo from '../../assets/logo.png'
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'failed'
@@ -49,7 +49,7 @@ export function Dashboard({
   const [showErrors, setShowErrors] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('tree')
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
-  const { channelCount } = useChannels()
+  const { isConnected: herdrConnected } = useHerdrStatus()
 
   const filteredProcesses = filter === 'all'
     ? processes
@@ -117,7 +117,7 @@ export function Dashboard({
                   ? () => onMigrateSession(node.process.path)
                   : undefined
                 }
-                channelCount={channelCount}
+                herdrConnected={herdrConnected}
               />
             </div>
             {hasChildren && (
@@ -289,7 +289,7 @@ export function Dashboard({
                     ? () => onMigrateSession(process.path)
                     : undefined
                   }
-                  channelCount={channelCount}
+                  herdrConnected={herdrConnected}
                 />
               ))}
             </div>

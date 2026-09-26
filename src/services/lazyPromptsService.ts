@@ -130,58 +130,6 @@ export async function hasActiveAgentSession(processPath: string): Promise<boolea
 }
 
 /**
- * Send a prompt via MCP channel to a Claude Code session.
- * Finds the channel endpoint for the process's Claude Code session by PID.
- */
-async function sendViaChannel(
-  prompt: string,
-  meta?: Record<string, string>,
-  targetPid?: number
-): Promise<{ success: boolean; message: string; noChannel?: boolean }> {
-  try {
-    const channels = await window.electronAPI.channelList()
-    if (!channels || channels.length === 0) {
-      return {
-        success: false,
-        message: 'No channel endpoints available. Make sure the channel server is installed and a Claude Code session is running.',
-        noChannel: true,
-      }
-    }
-
-    let channel = channels[0]
-
-    // When a target PID is known, try to match the specific channel endpoint
-    if (targetPid && window.electronAPI.channelGetForPid) {
-      const matched = await window.electronAPI.channelGetForPid(targetPid)
-      if (matched) {
-        channel = matched
-      } else {
-        console.warn(`No channel found for PID ${targetPid}, falling back to first available channel (port ${channel.port})`)
-      }
-    }
-
-    const result = await window.electronAPI.channelSendPrompt(channel.port, prompt, meta)
-
-    if (!result.ok) {
-      return {
-        success: false,
-        message: result.error || 'Failed to send prompt via channel',
-      }
-    }
-
-    return {
-      success: true,
-      message: 'Prompt sent via channel!',
-    }
-  } catch (err) {
-    return {
-      success: false,
-      message: err instanceof Error ? err.message : 'Unknown channel error',
-    }
-  }
-}
-
-/**
  * Execute a lazy prompt action
  */
 export async function executeLazyPrompt(
@@ -189,9 +137,8 @@ export async function executeLazyPrompt(
   action: 'clipboard' | 'agent-apply',
   process: ProcessInstance,
   processPath: string,
-  option?: InteractionOption,
-  deliveryMode: 'pty' | 'channel' = 'pty'
-): Promise<{ success: boolean; message: string; noSession?: boolean; noChannel?: boolean }> {
+  option?: InteractionOption
+): Promise<{ success: boolean; message: string; noSession?: boolean }> {
   const prompt = generateLazyPrompt(type, process, processPath, option)
 
   switch (action) {
@@ -202,11 +149,6 @@ export async function executeLazyPrompt(
         message: success ? 'Copied to clipboard!' : 'Failed to copy to clipboard'
       }
     case 'agent-apply':
-      if (deliveryMode === 'channel') {
-        return sendViaChannel(prompt, { processPath, promptType: type })
-      }
-
-      // PTY delivery (existing path)
       const result = await agentService.sendLazyPromptToProcess(processPath, prompt)
 
       if (result.noSession) {

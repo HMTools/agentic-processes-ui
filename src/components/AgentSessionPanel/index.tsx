@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Terminal, getTerminalApi } from './Terminal'
 import { useSettings } from '../../hooks/useSettings'
-import { useChannels } from '../../hooks/useChannels'
+import { useHerdrStatus } from '../../hooks/useHerdrStatus'
 import type { AgentSession, AgentType, ProcessInstance, ExternalSession } from '../../types'
 
 interface AgentSessionPanelProps {
@@ -22,7 +22,7 @@ export function AgentSessionPanel({
   onMigrateSession
 }: AgentSessionPanelProps) {
   const { settings } = useSettings()
-  const { channels, hasChannels: hasChannel } = useChannels()
+  const { isConnected: herdrConnected } = useHerdrStatus()
   const [session, setSession] = useState<AgentSession | null>(null)
   const [isStarting, setIsStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -216,13 +216,13 @@ export function AgentSessionPanel({
                      session.status === 'error' ? 'Error' : 'Disconnected'}
                   </span>
                 </div>
-                {hasChannel && (
-                  <div className="flex items-center gap-1" title={`Channel on port ${channels[0]?.port}`}>
+                {herdrConnected && (
+                  <div className="flex items-center gap-1" title="Herdr connected">
                     <svg className="w-3 h-3 text-status-completed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                         d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0" />
                     </svg>
-                    <span className="text-status-completed">Channel</span>
+                    <span className="text-status-completed">Herdr</span>
                   </div>
                 )}
               </div>

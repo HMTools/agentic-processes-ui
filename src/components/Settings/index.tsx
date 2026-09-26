@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useSettings } from '../../hooks/useSettings'
-import { useChannels } from '../../hooks/useChannels'
 import { Toggle } from '../ui/Toggle'
-import { ChannelSection } from './ChannelSection'
+import { HerdrStatusSection } from './HerdrStatusSection'
 import type { AgentType } from '../../types'
 
 interface SettingsProps {
@@ -20,9 +19,7 @@ export function Settings({
   onBack
 }: SettingsProps) {
   const { settings, updateLazyPromptsSettings, updateAgentSettings, resetSettings } = useSettings()
-  const { isInstalled: channelInstalled } = useChannels()
   const [availableAgents, setAvailableAgents] = useState(AGENT_TYPES)
-  const deliveryModeRef = useRef<HTMLDivElement>(null)
 
   // Load available agents from electron
   useEffect(() => {
@@ -35,15 +32,6 @@ export function Settings({
         })))
       })
     }
-  }, [])
-
-  const handleDeliveryModeHint = useCallback(() => {
-    deliveryModeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    // Brief highlight effect
-    deliveryModeRef.current?.classList.add('ring-2', 'ring-accent', 'ring-offset-2', 'ring-offset-background')
-    setTimeout(() => {
-      deliveryModeRef.current?.classList.remove('ring-2', 'ring-accent', 'ring-offset-2', 'ring-offset-background')
-    }, 2000)
   }, [])
 
   return (
@@ -70,8 +58,8 @@ export function Settings({
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl mx-auto space-y-8">
           
-          {/* Channel Server Section */}
-          <ChannelSection onDeliveryModeHint={handleDeliveryModeHint} />
+          {/* Herdr Connection Section */}
+          <HerdrStatusSection />
 
           {/* Lazy Prompts Section */}
           <section className="bg-surface rounded-lg border border-border overflow-hidden">
@@ -144,54 +132,6 @@ export function Settings({
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                           d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                      </svg>
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Delivery Mode */}
-              <div ref={deliveryModeRef} className={`transition-opacity rounded-lg ${settings.lazyPrompts.enabled && settings.lazyPrompts.defaultAction === 'agent-apply' ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                <label className="text-sm font-medium text-text-primary block mb-2">
-                  Delivery Mode
-                </label>
-                <p className="text-xs text-text-muted mb-3">
-                  How prompts are delivered to the agent session
-                </p>
-                <div className="space-y-2">
-                  <RadioOption
-                    id="delivery-pty"
-                    name="delivery-mode"
-                    value="pty"
-                    checked={settings.lazyPrompts.deliveryMode === 'pty'}
-                    onChange={() => updateLazyPromptsSettings({ deliveryMode: 'pty' })}
-                    label="PTY (Terminal)"
-                    description="Type prompt into the terminal (classic mode, requires app-managed session)"
-                    icon={
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    }
-                  />
-                  <RadioOption
-                    id="delivery-channel"
-                    name="delivery-mode"
-                    value="channel"
-                    checked={settings.lazyPrompts.deliveryMode === 'channel'}
-                    onChange={() => {
-                      if (channelInstalled) {
-                        updateLazyPromptsSettings({ deliveryMode: 'channel' })
-                      }
-                    }}
-                    label={channelInstalled ? 'Channel (MCP)' : 'Channel (MCP) -- Install Required'}
-                    description={channelInstalled
-                      ? 'Send via MCP channel (works with any session: VS Code, terminal, etc.)'
-                      : 'Channel server not installed. Install it above to enable this mode.'}
-                    icon={
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" />
                       </svg>
                     }
                   />

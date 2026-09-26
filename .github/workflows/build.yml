@@ -34,13 +34,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      # Windows needs MSVC for compiling native modules (node-pty) via @electron/rebuild
-      - name: Setup MSVC
-        if: matrix.platform == 'win'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
       # Linux needs additional packages for electron-builder
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
@@ -50,9 +43,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Build channel-server
-        run: node scripts/build-channel-server.js
 
       - name: Build Vite app
         run: npx vite build

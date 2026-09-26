@@ -17,20 +17,7 @@ import {
   type ActiveProcessInfo,
   type ExternalSession
 } from './agentSessionManager'
-import {
-  getChannelManager,
-  startChannelManager,
-  stopChannelManager,
-  type ChannelAvailableEvent,
-  type ChannelRemovedEvent,
-  type ChannelReply,
-} from './channelManager'
-import {
-  isChannelInstalled,
-  installChannelGlobally,
-  uninstallChannelGlobally,
-  getInstalledChannelPath,
-} from './channelInstaller'
+import { getHerdrClient, disconnectHerdrClient } from './herdrClient'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -1035,66 +1022,23 @@ ipcMain.handle('agent:migrate-external', async (_event, externalSession: Externa
 })
 
 // ============================================================================
-// Channel IPC Handlers
+// Herdr IPC Handlers
 // ============================================================================
 
-let channelManagerInitialized = false
+let herdrInitialized = false
 
-function initializeChannelManager() {
-  if (channelManagerInitialized) return
-  channelManagerInitialized = true
+function initializeHerdrClient() {
+  if (herdrInitialized) return
+  herdrInitialized = true
 
-  startChannelManager()
-  const cm = getChannelManager()
-
-  cm.on('channel-available', (event: ChannelAvailableEvent) => {
-    broadcastToRenderers('channel:available', event)
+  const client = getHerdrClient()
+  client.on('connection-status', (event: { status: string; error: string | null }) => {
+    broadcastToRenderers('herdr:status-changed', event)
   })
-
-  cm.on('channel-removed', (event: ChannelRemovedEvent) => {
-    broadcastToRenderers('channel:removed', event)
-  })
-
-  cm.on('channel-reply', (event: ChannelReply & { parentPid: number }) => {
-    broadcastToRenderers('channel:reply', event)
-  })
+  client.connect()
 }
 
-ipcMain.handle('channel:is-installed', () => {
-  return isChannelInstalled()
-})
-
-ipcMain.handle('channel:get-installed-path', () => {
-  return getInstalledChannelPath()
-})
-
-ipcMain.handle('channel:install', () => {
-  return installChannelGlobally(!app.isPackaged)
-})
-
-ipcMain.handle('channel:uninstall', () => {
-  return uninstallChannelGlobally()
-})
-
-ipcMain.handle('channel:list', () => {
-  initializeChannelManager()
-  return getChannelManager().listChannels()
-})
-
-ipcMain.handle('channel:get-for-pid', (_event, pid: number) => {
-  initializeChannelManager()
-  return getChannelManager().getChannelForPid(pid)
-})
-
-ipcMain.handle('channel:send-prompt', async (_event, port: number, prompt: string, meta?: Record<string, string>) => {
-  initializeChannelManager()
-  return getChannelManager().sendPrompt(port, prompt, meta)
-})
-
-ipcMain.handle('channel:check-health', async (_event, port: number) => {
-  initializeChannelManager()
-  return getChannelManager().checkHealth(port)
-})
+ipcMain.handle('herdr:get-status', () => getHerdrClient().getStatus())
 
 // ============================================================================
 // Overview Window IPC Handlers
@@ -1300,8 +1244,8 @@ app.whenReady().then(() => {
 
   createWindow()
 
-  // Start channel discovery on app launch
-  initializeChannelManager()
+  // Connect to Herdr's local socket API on app launch
+  initializeHerdrClient()
 
   // Auto-update (production only)
   if (!process.env.VITE_DEV_SERVER_URL) {
@@ -1385,8 +1329,8 @@ app.on('window-all-closed', () => {
   // Clean up agent sessions
   cleanupAgentManager()
 
-  // Clean up channel manager
-  stopChannelManager()
+  // Disconnect from Herdr
+  disconnectHerdrClient()
 
   if (process.platform !== 'darwin') {
     app.quit()

@@ -331,7 +331,6 @@ export interface WorkspaceConfig {
 export interface LazyPromptsSettings {
   enabled: boolean
   defaultAction: 'clipboard' | 'agent-apply'
-  deliveryMode: 'pty' | 'channel'
 }
 
 export interface AppSettings {
@@ -341,27 +340,13 @@ export interface AppSettings {
 }
 
 // ============================================================================
-// Channel types
+// Herdr types
 // ============================================================================
 
-export interface ChannelEndpoint {
-  port: number
-  parentPid: number
-  startedAt: string
-}
-
-export interface ChannelReply {
-  correlationId: string
-  type: 'ack' | 'result' | 'error'
-  message: string
-  timestamp: string
-}
-
-export interface ChannelStatus {
-  isInstalled: boolean
-  channels: ChannelEndpoint[]
-  hasChannels: boolean
-  channelCount: number
+export interface HerdrStatus {
+  isConnected: boolean
+  socketPath: string | null
+  error?: string
 }
 
 // ============================================================================

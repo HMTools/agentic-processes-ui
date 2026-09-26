@@ -121,20 +121,13 @@ export interface ActiveProcessInfo {
 }
 
 // ============================================================================
-// Channel Types
+// Herdr Types
 // ============================================================================
 
-export interface ChannelEndpoint {
-  port: number
-  parentPid: number
-  startedAt: string
-}
-
-export interface ChannelReply {
-  correlationId: string
-  type: 'ack' | 'result' | 'error'
-  message: string
-  timestamp: string
+export interface HerdrStatusEvent {
+  status: 'connected' | 'disconnected' | 'connecting'
+  error: string | null
+  socketPath?: string
 }
 
 // Expose protected methods to renderer
@@ -307,54 +300,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('clipboard:write-text', text) as Promise<boolean>,
   
   // ============================================================================
-  // Channel API
+  // Herdr API
   // ============================================================================
 
-  channelIsInstalled: () =>
-    ipcRenderer.invoke('channel:is-installed') as Promise<boolean>,
+  herdrGetStatus: () =>
+    ipcRenderer.invoke('herdr:get-status') as Promise<{ status: 'connected' | 'disconnected' | 'connecting'; error: string | null; socketPath: string }>,
 
-  channelGetInstalledPath: () =>
-    ipcRenderer.invoke('channel:get-installed-path') as Promise<string | null>,
-
-  channelInstall: () =>
-    ipcRenderer.invoke('channel:install') as Promise<{ success: boolean; error?: string }>,
-
-  channelUninstall: () =>
-    ipcRenderer.invoke('channel:uninstall') as Promise<{ success: boolean; error?: string }>,
-
-  channelList: () =>
-    ipcRenderer.invoke('channel:list') as Promise<ChannelEndpoint[]>,
-
-  channelGetForPid: (pid: number) =>
-    ipcRenderer.invoke('channel:get-for-pid', pid) as Promise<ChannelEndpoint | null>,
-
-  channelSendPrompt: (port: number, prompt: string, meta?: Record<string, string>) =>
-    ipcRenderer.invoke('channel:send-prompt', port, prompt, meta) as Promise<{ ok: boolean; correlationId?: string; error?: string }>,
-
-  channelCheckHealth: (port: number) =>
-    ipcRenderer.invoke('channel:check-health', port) as Promise<{ ok: boolean; port: number; parentPid: number; mcpConnected: boolean } | null>,
-
-  onChannelAvailable: (callback: (event: { parentPid: number; port: number }) => void) => {
-    const subscription = (_event: Electron.IpcRendererEvent, data: { parentPid: number; port: number }) => callback(data)
-    ipcRenderer.on('channel:available', subscription)
+  onHerdrStatusChange: (callback: (event: HerdrStatusEvent) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: HerdrStatusEvent) => callback(data)
+    ipcRenderer.on('herdr:status-changed', subscription)
     return () => {
-      ipcRenderer.removeListener('channel:available', subscription)
-    }
-  },
-
-  onChannelRemoved: (callback: (event: { parentPid: number }) => void) => {
-    const subscription = (_event: Electron.IpcRendererEvent, data: { parentPid: number }) => callback(data)
-    ipcRenderer.on('channel:removed', subscription)
-    return () => {
-      ipcRenderer.removeListener('channel:removed', subscription)
-    }
-  },
-
-  onChannelReply: (callback: (event: ChannelReply & { parentPid: number }) => void) => {
-    const subscription = (_event: Electron.IpcRendererEvent, data: ChannelReply & { parentPid: number }) => callback(data)
-    ipcRenderer.on('channel:reply', subscription)
-    return () => {
-      ipcRenderer.removeListener('channel:reply', subscription)
+      ipcRenderer.removeListener('herdr:status-changed', subscription)
     }
   },
 
@@ -518,18 +474,9 @@ declare global {
       marketplaceCatalog: () => Promise<{ success: boolean; data?: unknown; error?: string }>
       marketplaceInstall: (marketplace: string, template: string, category: string, type: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
       marketplaceUninstall: (template: string, type: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
-      // Channel API
-      channelIsInstalled: () => Promise<boolean>
-      channelGetInstalledPath: () => Promise<string | null>
-      channelInstall: () => Promise<{ success: boolean; error?: string }>
-      channelUninstall: () => Promise<{ success: boolean; error?: string }>
-      channelList: () => Promise<ChannelEndpoint[]>
-      channelGetForPid: (pid: number) => Promise<ChannelEndpoint | null>
-      channelSendPrompt: (port: number, prompt: string, meta?: Record<string, string>) => Promise<{ ok: boolean; correlationId?: string; error?: string }>
-      channelCheckHealth: (port: number) => Promise<{ ok: boolean; port: number; parentPid: number; mcpConnected: boolean } | null>
-      onChannelAvailable: (callback: (event: { parentPid: number; port: number }) => void) => () => void
-      onChannelRemoved: (callback: (event: { parentPid: number }) => void) => () => void
-      onChannelReply: (callback: (event: ChannelReply & { parentPid: number }) => void) => () => void
+      // Herdr API
+      herdrGetStatus: () => Promise<{ status: 'connected' | 'disconnected' | 'connecting'; error: string | null; socketPath: string }>
+      onHerdrStatusChange: (callback: (event: HerdrStatusEvent) => void) => () => void
       // Auto-Update API
       updateGetCurrentVersion: () => Promise<string>
       updateQuitAndInstall: () => Promise<void>
