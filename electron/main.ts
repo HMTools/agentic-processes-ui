@@ -41,6 +41,17 @@ function broadcastToRenderers(channel: string, data: unknown) {
   }
 }
 
+// Coalesce bursts of filesystem events (e.g. a busy log.json) into one broadcast per key
+const broadcastDebounceTimers: Map<string, NodeJS.Timeout> = new Map()
+function broadcastToRenderersDebounced(key: string, channel: string, data: unknown, delayMs = 250) {
+  const existing = broadcastDebounceTimers.get(key)
+  if (existing) clearTimeout(existing)
+  broadcastDebounceTimers.set(key, setTimeout(() => {
+    broadcastDebounceTimers.delete(key)
+    broadcastToRenderers(channel, data)
+  }, delayMs))
+}
+
 function createWindow() {
   const iconPath = join(__dirname, '../images/icon.png')
   mainWindow = new BrowserWindow({
@@ -76,6 +87,21 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('RENDERER GONE, recreating window:', JSON.stringify(details))
+    if (!mainWindow) return
+    const dead = mainWindow
+    mainWindow = null
+    if (!dead.isDestroyed()) dead.destroy()
+    createWindow()
+  })
+  mainWindow.webContents.on('did-fail-load', (_event, code, desc) => {
+    console.error('DID FAIL LOAD:', code, desc)
+  })
+  mainWindow.webContents.on('unresponsive', () => {
+    console.error('RENDERER UNRESPONSIVE')
   })
 }
 
@@ -181,7 +207,7 @@ ipcMain.handle('start-watching', async (_event, projectPath: string) => {
                     topics[me.replace(/\.json$/, '')] = JSON.parse(mc)
                   } catch { /* skip unreadable files */ }
                 }
-                broadcastToRenderers('memory-update', {
+                broadcastToRenderersDebounced(`memory:${data.processPath}`, 'memory-update', {
                   event,
                   processPath: data.processPath,
                   memory: topics
@@ -192,7 +218,7 @@ ipcMain.handle('start-watching', async (_event, projectPath: string) => {
             }
             break
           case 'log':
-            broadcastToRenderers('log-update', {
+            broadcastToRenderersDebounced(`log:${data.processPath}`, 'log-update', {
               event,
               processPath: data.processPath,
               log: data.content
@@ -373,7 +399,7 @@ ipcMain.handle('watch-file', (_event, filePath: string) => {
     console.log(`File content changed: ${path}`)
     try {
       const content = await readFile(path, 'utf-8')
-      broadcastToRenderers('file-content-update', {
+      broadcastToRenderersDebounced(`file-content:${path}`, 'file-content-update', {
         filePath: path,
         content
       })
@@ -402,6 +428,11 @@ ipcMain.handle('unwatch-file', (_event, filePath: string) => {
     fileWatcher.close()
     fileContentWatchers.delete(filePath)
     console.log(`Stopped watching file: ${filePath}`)
+  }
+  const pendingTimer = broadcastDebounceTimers.get(`file-content:${filePath}`)
+  if (pendingTimer) {
+    clearTimeout(pendingTimer)
+    broadcastDebounceTimers.delete(`file-content:${filePath}`)
   }
   return true
 })
@@ -1225,6 +1256,9 @@ if (!gotLock) {
     }
   })
 }
+
+// Cap renderer heap so a leak fails fast/reproducibly instead of a silent 30min OOM abort
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512')
 
 // Set the app name (shows in Dock and menu)
 app.name = 'Agentic Processes UI'
