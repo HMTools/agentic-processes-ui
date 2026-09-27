@@ -15795,9 +15795,6 @@ const AGENT_CONFIGS = {
     displayName: "Claude Code"
   }
 };
-function escapeRegex(str2) {
-  return str2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 const POLL_INTERVAL_MS = 200;
 class AgentSessionManager extends EventEmitter {
   sessions = /* @__PURE__ */ new Map();
@@ -15884,19 +15881,23 @@ class AgentSessionManager extends EventEmitter {
         argv.push("--dangerously-skip-permissions");
       }
       if (options?.resumeSessionId && agentType === "claude-code") {
+        if ((await this.getLiveHerdrSessionIds()).has(options.resumeSessionId)) {
+          throw new Error(
+            `Session "${options.resumeSessionId}" is already running in another Herdr pane. Attach to it there instead — Claude Code allows only one active process per session.`
+          );
+        }
         argv.push("--resume", options.resumeSessionId);
       }
       const agentStart = await client.call("agent.start", {
         name: sessionId,
         tab_id: workspace.tab.tab_id,
+        cwd: resolvedCwd,
         argv,
         focus: false
       });
       session.herdrPaneId = agentStart.agent.pane_id;
       session.herdrAgentId = agentStart.agent.name;
       await client.call("pane.close", { pane_id: workspace.root_pane.pane_id }).catch(() => {
-      });
-      await this.pollAgentStatus(session.herdrAgentId, 3e4).catch(() => {
       });
       if (session.status === "stopped") {
         return this.getSessionPublic(session);
@@ -15905,7 +15906,16 @@ class AgentSessionManager extends EventEmitter {
       session.status = "running";
       this.emit("status", { sessionId, status: "running" });
       if (processPath) {
-        await this.attachToProcess(sessionId, processPath);
+        const readyStatus = await this.pollAgentStatus(session.herdrAgentId, 3e4).catch(() => void 0);
+        if (readyStatus === "idle" || readyStatus === "done") {
+          await this.attachToProcess(sessionId, processPath);
+        } else {
+          this.emit("status", {
+            sessionId,
+            status: session.status,
+            error: readyStatus === "blocked" ? "Agent is waiting on a prompt (e.g. workspace trust) - resolve it in the terminal, then attach manually." : "Agent did not become ready in time - attach manually once it is idle."
+          });
+        }
       }
       return this.getSessionPublic(session);
     } catch (error2) {
@@ -15939,12 +15949,15 @@ class AgentSessionManager extends EventEmitter {
     const client = getHerdrClient();
     await client.call("pane.send_text", { pane_id: session.herdrPaneId, text: attachCommand });
     const commandEnd = attachCommand.slice(-20);
-    await client.call("pane.wait_for_output", {
+    const echoed = await client.call("pane.wait_for_output", {
       pane_id: session.herdrPaneId,
-      pattern: escapeRegex(commandEnd),
+      match: { type: "substring", value: commandEnd },
+      source: "recent_unwrapped",
       timeout_ms: 5e3
-    }).catch(() => {
-    });
+    }).then(() => true).catch(() => false);
+    if (!echoed) {
+      throw new Error(`Attach command was not echoed back in pane - the agent may be on an unexpected prompt.`);
+    }
     await client.call("pane.send_keys", { pane_id: session.herdrPaneId, keys: ["Enter"] });
     session.attachedProcessPath = processPath;
     this.emit("status", { sessionId, status: session.status });
@@ -15973,12 +15986,15 @@ class AgentSessionManager extends EventEmitter {
     }
     await client.call("pane.send_text", { pane_id: session.herdrPaneId, text: prompt });
     const promptEnd = prompt.slice(-20);
-    await client.call("pane.wait_for_output", {
+    const echoed = await client.call("pane.wait_for_output", {
       pane_id: session.herdrPaneId,
-      pattern: escapeRegex(promptEnd),
+      match: { type: "substring", value: promptEnd },
+      source: "recent_unwrapped",
       timeout_ms: 5e3
-    }).catch(() => {
-    });
+    }).then(() => true).catch(() => false);
+    if (!echoed) {
+      throw new Error(`Prompt was not echoed back in pane - the agent may be on an unexpected prompt.`);
+    }
     await client.call("pane.send_keys", { pane_id: session.herdrPaneId, keys: ["Enter"] });
   }
   /**
@@ -16050,6 +16066,29 @@ class AgentSessionManager extends EventEmitter {
     return Array.from(this.sessions.values()).filter((s) => s.attachedProcessPath === processPath).map((s) => this.getSessionPublic(s));
   }
   /**
+   * Herdr's pane.list tags each pane with the live agent session id it hosts
+   * (agent_session.value) when the foreground process is a recognized agent.
+   * A `.session` file pointing at one of these ids is NOT an unmanaged
+   * "external" process — it's already alive inside Herdr (e.g. the very
+   * session driving this Electron app's own automation, or a session the
+   * user has open in a plain herdr/terminal tab). Claude Code allows only one
+   * live process per session id, so trying to migrate/resume one of these
+   * always kills the pane that attempts it (the original keeps the lock).
+   * Used by both discovery (to not even offer it) and migration (defense in
+   * depth against a stale discovery snapshot).
+   */
+  async getLiveHerdrSessionIds() {
+    try {
+      const client = getHerdrClient();
+      const { panes } = await client.call("pane.list", {});
+      return new Set(
+        (panes ?? []).map((p) => p.agent_session?.value).filter((v) => Boolean(v))
+      );
+    } catch {
+      return /* @__PURE__ */ new Set();
+    }
+  }
+  /**
    * Discover external Claude Code sessions attached to active processes.
    * Detection is file-based (.session file in the process folder); PIDs are
    * enriched, best-effort, via Herdr's own pane/process bookkeeping
@@ -16057,6 +16096,7 @@ class AgentSessionManager extends EventEmitter {
    */
   async discoverExternalSessions(activeProcesses) {
     const result = /* @__PURE__ */ new Map();
+    const liveSessionIds = await this.getLiveHerdrSessionIds();
     for (const activeProc of activeProcesses) {
       const processDir = dirname(activeProc.path);
       const sessionFilePath = join(processDir, ".session");
@@ -16068,6 +16108,7 @@ class AgentSessionManager extends EventEmitter {
       } catch {
       }
       if (!realSessionId) continue;
+      if (liveSessionIds.has(realSessionId)) continue;
       const managedSessions = this.getSessionsForProcess(activeProc.path);
       if (managedSessions.some((s) => s.status === "running" || s.status === "starting")) continue;
       result.set(activeProc.path, {
@@ -16116,8 +16157,14 @@ class AgentSessionManager extends EventEmitter {
    * resumes the session in a freshly created pane.
    */
   async migrateExternalSession(externalSession, workingDirectory, options) {
+    const client = getHerdrClient();
+    let closedPaneId = null;
+    if ((await this.getLiveHerdrSessionIds()).has(externalSession.claudeSessionId)) {
+      throw new Error(
+        `Session "${externalSession.claudeSessionId}" is already running in another Herdr pane. Attach to it there instead of migrating — Claude Code allows only one active process per session.`
+      );
+    }
     try {
-      const client = getHerdrClient();
       const managedPaneIds = new Set(
         Array.from(this.sessions.values()).map((s) => s.herdrPaneId).filter(Boolean)
       );
@@ -16134,6 +16181,7 @@ class AgentSessionManager extends EventEmitter {
           if (matches) {
             await client.call("pane.close", { pane_id: pane.pane_id }).catch(() => {
             });
+            closedPaneId = pane.pane_id;
             break;
           }
         } catch {
@@ -16141,7 +16189,20 @@ class AgentSessionManager extends EventEmitter {
       }
     } catch {
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    if (closedPaneId) {
+      const deadline = Date.now() + 8e3;
+      while (Date.now() < deadline) {
+        try {
+          const { panes } = await client.call("pane.list", {});
+          if (!panes.some((p) => p.pane_id === closedPaneId)) break;
+        } catch {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
     return this.createSession(
       "claude-code",
       workingDirectory,
@@ -16171,9 +16232,9 @@ class AgentSessionManager extends EventEmitter {
         const info = await client.call("agent.get", { target: agentTarget });
         status = info.agent?.agent_status;
       } catch {
-        return;
+        return void 0;
       }
-      if (status === "idle" || status === "done") return;
+      if (status === "idle" || status === "done" || status === "blocked") return status;
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
     throw new Error(`Agent "${agentTarget}" did not reach idle within ${timeoutMs}ms`);
@@ -16182,6 +16243,7 @@ class AgentSessionManager extends EventEmitter {
   startPolling(session) {
     if (session.pollTimer) return;
     const client = getHerdrClient();
+    let consecutiveErrors = 0;
     session.pollTimer = setInterval(async () => {
       if (!session.herdrPaneId) return;
       try {
@@ -16189,6 +16251,7 @@ class AgentSessionManager extends EventEmitter {
           pane_id: session.herdrPaneId,
           source: "recent_unwrapped"
         });
+        consecutiveErrors = 0;
         const snapshot = read.read?.text ?? "";
         if (snapshot && snapshot !== session.outputBuffer) {
           const newSuffix = snapshot.startsWith(session.outputBuffer) ? snapshot.slice(session.outputBuffer.length) : snapshot;
@@ -16197,7 +16260,17 @@ class AgentSessionManager extends EventEmitter {
             this.emit("output", { sessionId: session.id, data: newSuffix });
           }
         }
-      } catch {
+      } catch (err) {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 10) {
+          this.stopPolling(session);
+          session.status = "error";
+          this.emit("status", {
+            sessionId: session.id,
+            status: "error",
+            error: err instanceof Error ? err.message : "pane.read failed repeatedly"
+          });
+        }
       }
     }, POLL_INTERVAL_MS);
   }

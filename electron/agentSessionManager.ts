@@ -79,12 +79,6 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   }
 }
 
-// Escape special regex characters in a string for literal matching (used to
-// build pane.wait_for_output patterns from literal echoed text).
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 // ponytail: no Herdr push event streams raw pane output (events.subscribe's
 // documented event list only has lifecycle/status events, e.g.
 // pane.agent_status_changed, pane.output_matched-on-pattern-match). Forwarding
@@ -218,6 +212,18 @@ class AgentSessionManager extends EventEmitter {
       }
 
       if (options?.resumeSessionId && agentType === 'claude-code') {
+        // Claude Code allows only one live process per session id. If this id
+        // is already running in some Herdr pane (a session already open
+        // elsewhere, possibly the very session driving this app), resuming it
+        // here would race that pane for the session-file lock and always
+        // lose — the new pane dies within ~1-2s of spawning. Refuse clearly
+        // instead of spawning a resume that's guaranteed to crash.
+        if ((await this.getLiveHerdrSessionIds()).has(options.resumeSessionId)) {
+          throw new Error(
+            `Session "${options.resumeSessionId}" is already running in another Herdr pane. ` +
+            `Attach to it there instead — Claude Code allows only one active process per session.`
+          )
+        }
         argv.push('--resume', options.resumeSessionId)
       }
 
@@ -227,6 +233,7 @@ class AgentSessionManager extends EventEmitter {
       const agentStart = await client.call<{ agent: { pane_id: string; name: string } }>('agent.start', {
         name: sessionId,
         tab_id: workspace.tab.tab_id,
+        cwd: resolvedCwd,
         argv,
         focus: false
       })
@@ -256,8 +263,24 @@ class AgentSessionManager extends EventEmitter {
         // blocking agent-wait RPC (confirmed against the live server -
         // agent.wait/agent.prompt from the public docs don't exist in this
         // protocol version); poll agent.get instead, same pattern as startPolling.
-        await this.pollAgentStatus(session.herdrAgentId, 30000).catch(() => {})
-        await this.attachToProcess(sessionId, processPath)
+        const readyStatus = await this.pollAgentStatus(session.herdrAgentId, 30000).catch(() => undefined)
+        if (readyStatus === 'idle' || readyStatus === 'done') {
+          await this.attachToProcess(sessionId, processPath)
+        } else {
+          // 'blocked' (workspace-trust or a permission prompt) or a timeout
+          // needs a human at the keyboard - auto-typing the attach command
+          // and pressing Enter here would confirm whatever menu option is
+          // currently highlighted (e.g. a trust prompt's default "No, exit"),
+          // which killed the agent outright before this fix. Surface it
+          // instead of guessing.
+          this.emit('status', {
+            sessionId,
+            status: session.status,
+            error: readyStatus === 'blocked'
+              ? 'Agent is waiting on a prompt (e.g. workspace trust) - resolve it in the terminal, then attach manually.'
+              : 'Agent did not become ready in time - attach manually once it is idle.'
+          } as AgentStatusEvent)
+        }
       }
 
       return this.getSessionPublic(session)
@@ -298,14 +321,23 @@ class AgentSessionManager extends EventEmitter {
     const client = getHerdrClient()
     await client.call('pane.send_text', { pane_id: session.herdrPaneId, text: attachCommand })
 
-    // Wait for the command to be echoed back before submitting (best-effort;
-    // proceeds regardless of timeout, same as the old PTY heuristic).
+    // Wait for the command to be echoed back before submitting. If it never
+    // shows up, the text didn't land in a real input (e.g. the pane is on an
+    // unrelated menu/prompt) - pressing Enter in that case confirms whatever
+    // is currently highlighted there instead of submitting our command, which
+    // silently killed the agent when that menu's default was "No, exit"
+    // before this fix. Only submit on a confirmed echo.
     const commandEnd = attachCommand.slice(-20)
-    await client.call('pane.wait_for_output', {
+    const echoed = await client.call('pane.wait_for_output', {
       pane_id: session.herdrPaneId,
-      pattern: escapeRegex(commandEnd),
+      match: { type: 'substring', value: commandEnd },
+      source: 'recent_unwrapped',
       timeout_ms: 5000
-    }).catch(() => {})
+    }).then(() => true).catch(() => false)
+
+    if (!echoed) {
+      throw new Error(`Attach command was not echoed back in pane - the agent may be on an unexpected prompt.`)
+    }
 
     await client.call('pane.send_keys', { pane_id: session.herdrPaneId, keys: ['Enter'] })
     session.attachedProcessPath = processPath
@@ -344,13 +376,20 @@ class AgentSessionManager extends EventEmitter {
     }
 
     // Fallback: pane-level send + wait_for_output for the echo, then submit.
+    // Only submit on a confirmed echo - see attachToProcess for why blindly
+    // pressing Enter on a failed/timed-out wait is unsafe.
     await client.call('pane.send_text', { pane_id: session.herdrPaneId, text: prompt })
     const promptEnd = prompt.slice(-20)
-    await client.call('pane.wait_for_output', {
+    const echoed = await client.call('pane.wait_for_output', {
       pane_id: session.herdrPaneId,
-      pattern: escapeRegex(promptEnd),
+      match: { type: 'substring', value: promptEnd },
+      source: 'recent_unwrapped',
       timeout_ms: 5000
-    }).catch(() => {})
+    }).then(() => true).catch(() => false)
+
+    if (!echoed) {
+      throw new Error(`Prompt was not echoed back in pane - the agent may be on an unexpected prompt.`)
+    }
     await client.call('pane.send_keys', { pane_id: session.herdrPaneId, keys: ['Enter'] })
   }
 
@@ -438,6 +477,34 @@ class AgentSessionManager extends EventEmitter {
   }
 
   /**
+   * Herdr's pane.list tags each pane with the live agent session id it hosts
+   * (agent_session.value) when the foreground process is a recognized agent.
+   * A `.session` file pointing at one of these ids is NOT an unmanaged
+   * "external" process — it's already alive inside Herdr (e.g. the very
+   * session driving this Electron app's own automation, or a session the
+   * user has open in a plain herdr/terminal tab). Claude Code allows only one
+   * live process per session id, so trying to migrate/resume one of these
+   * always kills the pane that attempts it (the original keeps the lock).
+   * Used by both discovery (to not even offer it) and migration (defense in
+   * depth against a stale discovery snapshot).
+   */
+  private async getLiveHerdrSessionIds(): Promise<Set<string>> {
+    try {
+      const client = getHerdrClient()
+      const { panes } = await client.call<{
+        panes: Array<{ agent_session?: { value?: string } }>
+      }>('pane.list', {})
+      return new Set(
+        (panes ?? [])
+          .map(p => p.agent_session?.value)
+          .filter((v): v is string => Boolean(v))
+      )
+    } catch {
+      return new Set()
+    }
+  }
+
+  /**
    * Discover external Claude Code sessions attached to active processes.
    * Detection is file-based (.session file in the process folder); PIDs are
    * enriched, best-effort, via Herdr's own pane/process bookkeeping
@@ -447,6 +514,7 @@ class AgentSessionManager extends EventEmitter {
     activeProcesses: ActiveProcessInfo[]
   ): Promise<Map<string, ExternalSession>> {
     const result = new Map<string, ExternalSession>()
+    const liveSessionIds = await this.getLiveHerdrSessionIds()
 
     for (const activeProc of activeProcesses) {
       const processDir = dirname(activeProc.path)
@@ -462,6 +530,9 @@ class AgentSessionManager extends EventEmitter {
       }
 
       if (!realSessionId) continue
+      // Already alive in some Herdr pane — not migratable, would just crash
+      // the migration attempt on Claude Code's single-process-per-session lock.
+      if (liveSessionIds.has(realSessionId)) continue
 
       const managedSessions = this.getSessionsForProcess(activeProc.path)
       if (managedSessions.some(s => s.status === 'running' || s.status === 'starting')) continue
@@ -525,8 +596,22 @@ class AgentSessionManager extends EventEmitter {
     workingDirectory: string,
     options?: { permissionMode?: 'regular' | 'allow-all' }
   ): Promise<AgentSession> {
+    const client = getHerdrClient()
+    let closedPaneId: string | null = null
+
+    // Defense in depth against a stale discovery snapshot: if this session id
+    // is already alive in some Herdr pane, resuming it here would race the
+    // still-running original for Claude Code's session-file lock and always
+    // lose (the new pane dies almost immediately). Refuse clearly instead of
+    // spawning a resume that's guaranteed to crash.
+    if ((await this.getLiveHerdrSessionIds()).has(externalSession.claudeSessionId)) {
+      throw new Error(
+        `Session "${externalSession.claudeSessionId}" is already running in another Herdr pane. ` +
+        `Attach to it there instead of migrating — Claude Code allows only one active process per session.`
+      )
+    }
+
     try {
-      const client = getHerdrClient()
       const managedPaneIds = new Set(
         Array.from(this.sessions.values()).map(s => s.herdrPaneId).filter(Boolean) as string[]
       )
@@ -547,6 +632,7 @@ class AgentSessionManager extends EventEmitter {
 
           if (matches) {
             await client.call('pane.close', { pane_id: pane.pane_id }).catch(() => {})
+            closedPaneId = pane.pane_id
             break
           }
         } catch {
@@ -557,8 +643,27 @@ class AgentSessionManager extends EventEmitter {
       // Discovery/close best-effort only — proceed to resume regardless
     }
 
-    // Wait for the external process to fully terminate
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    // Claude Code locks the session file while its process is alive; resuming
+    // before that old process (and its lock) is actually gone makes the new
+    // `claude --resume` exit immediately, which killed the pane silently
+    // before this fix. Poll for the closed pane to actually disappear
+    // (bounded) instead of guessing with a fixed sleep.
+    if (closedPaneId) {
+      const deadline = Date.now() + 8000
+      while (Date.now() < deadline) {
+        try {
+          const { panes } = await client.call<{ panes: Array<{ pane_id: string }> }>('pane.list', {})
+          if (!panes.some(p => p.pane_id === closedPaneId)) break
+        } catch {
+          break
+        }
+        await new Promise(resolve => setTimeout(resolve, 200))
+      }
+    } else {
+      // No external pane was found/matched — nothing to confirm the closure
+      // of, but the old process may still be shutting down elsewhere.
+      await new Promise(resolve => setTimeout(resolve, 1500))
+    }
 
     return this.createSession(
       'claude-code',
@@ -582,7 +687,7 @@ class AgentSessionManager extends EventEmitter {
   // No blocking agent-wait RPC exists in this protocol version (confirmed
   // against the live server's method list and by observing the `herdr agent
   // wait` CLI itself poll `agent.get` in a loop). Mirrors that behavior.
-  private async pollAgentStatus(agentTarget: string, timeoutMs: number): Promise<void> {
+  private async pollAgentStatus(agentTarget: string, timeoutMs: number): Promise<string | undefined> {
     const client = getHerdrClient()
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
@@ -593,12 +698,12 @@ class AgentSessionManager extends EventEmitter {
       } catch {
         // Agent target not found (process exited, or never got recognized as a
         // known agent binary) - nothing further to wait for.
-        return
+        return undefined
       }
       // 'blocked' (e.g. the workspace-trust prompt on a fresh claude launch, or
       // a permission prompt) needs a human, not more waiting - further polling
       // won't change it, so stop here rather than stalling the full timeout.
-      if (status === 'idle' || status === 'done' || status === 'blocked') return
+      if (status === 'idle' || status === 'done' || status === 'blocked') return status
       await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
     }
     throw new Error(`Agent "${agentTarget}" did not reach idle within ${timeoutMs}ms`)
@@ -609,6 +714,7 @@ class AgentSessionManager extends EventEmitter {
   private startPolling(session: AgentSessionInternal): void {
     if (session.pollTimer) return
     const client = getHerdrClient()
+    let consecutiveErrors = 0
 
     session.pollTimer = setInterval(async () => {
       if (!session.herdrPaneId) return
@@ -617,6 +723,7 @@ class AgentSessionManager extends EventEmitter {
           pane_id: session.herdrPaneId,
           source: 'recent_unwrapped'
         })
+        consecutiveErrors = 0
         const snapshot = read.read?.text ?? ''
         if (snapshot && snapshot !== session.outputBuffer) {
           const newSuffix = snapshot.startsWith(session.outputBuffer)
@@ -627,8 +734,21 @@ class AgentSessionManager extends EventEmitter {
             this.emit('output', { sessionId: session.id, data: newSuffix } as AgentOutputEvent)
           }
         }
-      } catch {
-        // Pane may have closed between polls — the status listener handles cleanup.
+      } catch (err) {
+        // A handful of failures can be a pane closing mid-poll — the status
+        // listener handles that cleanup. Sustained failure means the pane_id
+        // is gone or the request is malformed; stop polling and surface it
+        // instead of retrying silently forever.
+        consecutiveErrors += 1
+        if (consecutiveErrors >= 10) {
+          this.stopPolling(session)
+          session.status = 'error'
+          this.emit('status', {
+            sessionId: session.id,
+            status: 'error',
+            error: err instanceof Error ? err.message : 'pane.read failed repeatedly'
+          } as AgentStatusEvent)
+        }
       }
     }, POLL_INTERVAL_MS)
   }
