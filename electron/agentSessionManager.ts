@@ -235,23 +235,28 @@ class AgentSessionManager extends EventEmitter {
 
       await client.call('pane.close', { pane_id: workspace.root_pane.pane_id }).catch(() => {})
 
-      // Wait for the agent to be ready (idle) before considering it running.
-      // Herdr's socket API has no blocking agent-wait RPC (confirmed against the
-      // live server - agent.wait/agent.prompt from the public docs don't exist in
-      // this protocol version); poll agent.get instead, same pattern as startPolling.
-      await this.pollAgentStatus(session.herdrAgentId, 30000).catch(() => {})
-
       // Guard against killSession() racing this in-flight createSession()
       if (session.status === 'stopped') {
         return this.getSessionPublic(session)
       }
 
+      // Start forwarding pane output immediately - a fresh claude launch can sit
+      // on a workspace-trust prompt (agent_status 'blocked') needing the user's
+      // own keystroke, so the terminal must be visible right away rather than
+      // gated behind a readiness wait (that used to leave it blank for up to 30s).
       this.startPolling(session)
 
       session.status = 'running'
       this.emit('status', { sessionId, status: 'running' } as AgentStatusEvent)
 
       if (processPath) {
+        // Wait for the agent to be ready (idle) before auto-typing the attach
+        // command - only relevant here, since typing into a pane still on the
+        // trust prompt or mid-boot would misfire. Herdr's socket API has no
+        // blocking agent-wait RPC (confirmed against the live server -
+        // agent.wait/agent.prompt from the public docs don't exist in this
+        // protocol version); poll agent.get instead, same pattern as startPolling.
+        await this.pollAgentStatus(session.herdrAgentId, 30000).catch(() => {})
         await this.attachToProcess(sessionId, processPath)
       }
 
@@ -590,7 +595,10 @@ class AgentSessionManager extends EventEmitter {
         // known agent binary) - nothing further to wait for.
         return
       }
-      if (status === 'idle' || status === 'done') return
+      // 'blocked' (e.g. the workspace-trust prompt on a fresh claude launch, or
+      // a permission prompt) needs a human, not more waiting - further polling
+      // won't change it, so stop here rather than stalling the full timeout.
+      if (status === 'idle' || status === 'done' || status === 'blocked') return
       await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
     }
     throw new Error(`Agent "${agentTarget}" did not reach idle within ${timeoutMs}ms`)
