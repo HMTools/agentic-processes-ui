@@ -5,18 +5,6 @@ import type { AgentType, AgentSession, AgentConfig, ExternalSession } from '../t
 // ============================================================================
 
 export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
-  'cursor': {
-    command: 'agent',
-    processAttachCommand: (path: string) => `/process-continue ${path}`,
-    available: false,
-    displayName: 'Cursor Agent'
-  },
-  'github-copilot': {
-    command: 'gh copilot',
-    processAttachCommand: (_path: string) => '', // Future implementation
-    available: false,
-    displayName: 'GitHub Copilot'
-  },
   'claude-code': {
     command: 'claude',
     processAttachCommand: (path: string) => `/process-continue ${path}`,

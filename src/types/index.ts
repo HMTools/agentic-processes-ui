@@ -243,8 +243,8 @@ export interface LazyPromptConfig {
 // Agent types
 // ============================================================================
 
-/** Supported AI agent CLI types */
-export type AgentType = 'cursor' | 'github-copilot' | 'claude-code'
+/** Supported AI agent CLI types. Claude Code only, long term - no plan to support Cursor or GitHub Copilot. */
+export type AgentType = 'claude-code'
 
 /** Status of an agent session */
 export type AgentSessionStatus = 'starting' | 'running' | 'stopped' | 'error'

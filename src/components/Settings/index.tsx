@@ -1,38 +1,15 @@
-import { useState, useEffect } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import { Toggle } from '../ui/Toggle'
 import { HerdrStatusSection } from './HerdrStatusSection'
-import type { AgentType } from '../../types'
 
 interface SettingsProps {
   onBack: () => void
 }
 
-// Available agent types for the dropdown
-const AGENT_TYPES: { value: AgentType; label: string; available: boolean }[] = [
-  { value: 'claude-code', label: 'Claude Code', available: true },
-  { value: 'cursor', label: 'Cursor Agent', available: false },
-  { value: 'github-copilot', label: 'GitHub Copilot', available: false }
-]
-
 export function Settings({
   onBack
 }: SettingsProps) {
   const { settings, updateLazyPromptsSettings, updateAgentSettings, resetSettings } = useSettings()
-  const [availableAgents, setAvailableAgents] = useState(AGENT_TYPES)
-
-  // Load available agents from electron
-  useEffect(() => {
-    if (window.electronAPI?.agentGetAvailable) {
-      window.electronAPI.agentGetAvailable().then(agents => {
-        setAvailableAgents(agents.map(a => ({
-          value: a.type as AgentType,
-          label: a.displayName,
-          available: a.available
-        })))
-      })
-    }
-  }, [])
 
   return (
     <div className="h-full w-full flex flex-col bg-background">
@@ -158,30 +135,14 @@ export function Settings({
             </div>
             
             <div className="p-4 space-y-4">
-              {/* Default Agent Type */}
+              {/* Agent Type (Claude Code only, long term) */}
               <div>
-                <label htmlFor="default-agent-type" className="text-sm font-medium text-text-primary block mb-1">
-                  Default Agent Type
+                <label className="text-sm font-medium text-text-primary block mb-1">
+                  Agent Type
                 </label>
-                <p className="text-xs text-text-muted mb-2">
-                  The agent CLI to use when starting new sessions
+                <p className="text-xs text-text-muted">
+                  Claude Code
                 </p>
-                <select
-                  id="default-agent-type"
-                  value={settings.agent.defaultAgentType}
-                  onChange={(e) => updateAgentSettings({ defaultAgentType: e.target.value as AgentType })}
-                  className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent"
-                >
-                  {availableAgents.map(agent => (
-                    <option 
-                      key={agent.value} 
-                      value={agent.value}
-                      disabled={!agent.available}
-                    >
-                      {agent.label} {!agent.available && '(Coming Soon)'}
-                    </option>
-                  ))}
-                </select>
               </div>
 
               {/* Auto-attach Toggle */}

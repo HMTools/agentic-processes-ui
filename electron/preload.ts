@@ -68,7 +68,7 @@ export interface ProcessFile {
 // Agent Types
 // ============================================================================
 
-export type AgentType = 'cursor' | 'github-copilot' | 'claude-code'
+export type AgentType = 'claude-code'
 
 export type AgentSessionStatus = 'starting' | 'running' | 'stopped' | 'error'
 
@@ -125,7 +125,7 @@ export interface ActiveProcessInfo {
 // ============================================================================
 
 export interface HerdrStatusEvent {
-  status: 'connected' | 'disconnected' | 'connecting'
+  status: 'connected' | 'disconnected'
   error: string | null
   socketPath?: string
 }
@@ -304,7 +304,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ============================================================================
 
   herdrGetStatus: () =>
-    ipcRenderer.invoke('herdr:get-status') as Promise<{ status: 'connected' | 'disconnected' | 'connecting'; error: string | null; socketPath: string }>,
+    ipcRenderer.invoke('herdr:get-status') as Promise<{ status: 'connected' | 'disconnected'; error: string | null; socketPath: string }>,
 
   onHerdrStatusChange: (callback: (event: HerdrStatusEvent) => void) => {
     const subscription = (_event: Electron.IpcRendererEvent, data: HerdrStatusEvent) => callback(data)
@@ -475,7 +475,7 @@ declare global {
       marketplaceInstall: (marketplace: string, template: string, category: string, type: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
       marketplaceUninstall: (template: string, type: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
       // Herdr API
-      herdrGetStatus: () => Promise<{ status: 'connected' | 'disconnected' | 'connecting'; error: string | null; socketPath: string }>
+      herdrGetStatus: () => Promise<{ status: 'connected' | 'disconnected'; error: string | null; socketPath: string }>
       onHerdrStatusChange: (callback: (event: HerdrStatusEvent) => void) => () => void
       // Auto-Update API
       updateGetCurrentVersion: () => Promise<string>

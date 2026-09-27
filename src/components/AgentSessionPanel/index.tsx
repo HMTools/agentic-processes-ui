@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Terminal, getTerminalApi } from './Terminal'
 import { useSettings } from '../../hooks/useSettings'
 import { useHerdrStatus } from '../../hooks/useHerdrStatus'
-import type { AgentSession, AgentType, ProcessInstance, ExternalSession } from '../../types'
+import type { AgentSession, ProcessInstance, ExternalSession } from '../../types'
 
 interface AgentSessionPanelProps {
   process?: ProcessInstance
@@ -26,13 +26,7 @@ export function AgentSessionPanel({
   const [session, setSession] = useState<AgentSession | null>(null)
   const [isStarting, setIsStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [availableAgents, setAvailableAgents] = useState<Array<{ type: AgentType; displayName: string; available: boolean }>>([])
   const [isMigrating, setIsMigrating] = useState(false)
-
-  // Load available agent types
-  useEffect(() => {
-    window.electronAPI.agentGetAvailable().then(setAvailableAgents)
-  }, [])
 
   // Check for existing session for this process
   useEffect(() => {
@@ -181,11 +175,8 @@ export function AgentSessionPanel({
     }
   }, [onMigrateSession, processPath])
 
-  // Get the display name for current agent type
-  const agentDisplayName = useMemo(() => {
-    const agent = availableAgents.find(a => a.type === settings.agent.defaultAgentType)
-    return agent?.displayName || 'Agent'
-  }, [availableAgents, settings.agent.defaultAgentType])
+  // Claude Code only, long term - no other agent type to display
+  const agentDisplayName = 'Claude Code'
 
   return (
     <div className="flex flex-col h-full bg-background border-l border-border">

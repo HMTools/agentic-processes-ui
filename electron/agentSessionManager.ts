@@ -8,7 +8,7 @@ import { getHerdrClient } from './herdrClient'
 // Types
 // ============================================================================
 
-export type AgentType = 'cursor' | 'github-copilot' | 'claude-code'
+export type AgentType = 'claude-code'
 
 export type AgentSessionStatus = 'starting' | 'running' | 'stopped' | 'error'
 
@@ -70,20 +70,6 @@ export interface ActiveProcessInfo {
 // ============================================================================
 
 export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
-  'cursor': {
-    command: 'agent',
-    args: [],
-    processAttachCommand: (path: string) => `/process-continue ${path}`,
-    available: false,
-    displayName: 'Cursor Agent'
-  },
-  'github-copilot': {
-    command: 'gh',
-    args: ['copilot'],
-    processAttachCommand: (_path: string) => '', // Future implementation
-    available: false,
-    displayName: 'GitHub Copilot'
-  },
   'claude-code': {
     command: 'claude',
     args: [],
@@ -212,60 +198,48 @@ class AgentSessionManager extends EventEmitter {
         }
       }
 
-      // Create an isolated workspace/tab/pane for this session via Herdr
-      const workspace = await client.call<{ workspace_id: string }>('workspace.create', {
-        cwd: resolvedCwd,
-        label: config.displayName
-      })
-      session.herdrWorkspaceId = workspace.workspace_id
+      // Create an isolated workspace for this session via Herdr. workspace.create
+      // returns { workspace: {workspace_id}, tab: {tab_id}, root_pane: {pane_id} }
+      // (a blank starter pane) - agent.start below spawns its own dedicated pane
+      // for the agent process, so the blank root pane is closed right after.
+      const workspace = await client.call<{
+        workspace: { workspace_id: string }
+        tab: { tab_id: string }
+        root_pane: { pane_id: string }
+      }>('workspace.create', { cwd: resolvedCwd, label: config.displayName })
+      session.herdrWorkspaceId = workspace.workspace.workspace_id
+      session.herdrTabId = workspace.tab.tab_id
 
-      const tab = await client.call<{ tab_id: string }>('tab.create', {
-        workspace_id: workspace.workspace_id,
-        cwd: resolvedCwd,
-        focus: false
-      })
-      session.herdrTabId = tab.tab_id
-
-      const paneList = await client.call<{ panes: Array<{ pane_id: string }> }>('pane.list', {
-        tab_id: tab.tab_id
-      })
-      const paneId = paneList.panes?.[0]?.pane_id
-      if (!paneId) {
-        throw new Error('Herdr did not return a pane for the new tab')
-      }
-      session.herdrPaneId = paneId
-
-      // Build the agent CLI command
-      let agentCommand = config.args?.length
-        ? `${config.command} ${config.args.join(' ')}`
-        : config.command
+      // Build the agent CLI argv
+      const argv = [config.command, ...(config.args ?? [])]
 
       if (options?.permissionMode === 'allow-all' && agentType === 'claude-code') {
-        agentCommand = `${agentCommand} --dangerously-skip-permissions`
+        argv.push('--dangerously-skip-permissions')
       }
 
       if (options?.resumeSessionId && agentType === 'claude-code') {
-        agentCommand = `${agentCommand} --resume ${options.resumeSessionId}`
+        argv.push('--resume', options.resumeSessionId)
       }
 
-      await client.call('pane.send_text', { pane_id: paneId, text: agentCommand })
-      await client.call('pane.send_keys', { pane_id: paneId, keys: ['Enter'] })
+      // agent.start spawns argv in a fresh pane inside the tab and, when argv[0]
+      // matches a known agent binary (claude), registers
+      // it as a target queryable by name via agent.get/agent.send.
+      const agentStart = await client.call<{ agent: { pane_id: string; name: string } }>('agent.start', {
+        name: sessionId,
+        tab_id: workspace.tab.tab_id,
+        argv,
+        focus: false
+      })
+      session.herdrPaneId = agentStart.agent.pane_id
+      session.herdrAgentId = agentStart.agent.name
 
-      // Mark the pane as agent-managed so we can use agent.wait/agent.prompt
-      try {
-        const agentResult = await client.call<{ agent_id: string }>('agent.start', { pane_id: paneId })
-        session.herdrAgentId = agentResult?.agent_id ?? null
-      } catch {
-        // Agent detection may not be ready immediately; sendPrompt falls back
-        // to pane-level calls when herdrAgentId is unset.
-      }
+      await client.call('pane.close', { pane_id: workspace.root_pane.pane_id }).catch(() => {})
 
       // Wait for the agent to be ready (idle) before considering it running.
-      if (session.herdrAgentId) {
-        await client.call('agent.wait', { agent_id: session.herdrAgentId, until: 'idle', timeout_ms: 30000 }).catch(() => {})
-      } else {
-        await client.call('pane.wait_for_output', { pane_id: paneId, pattern: '[?>]\\s*(for shortcuts|$)', timeout_ms: 30000 }).catch(() => {})
-      }
+      // Herdr's socket API has no blocking agent-wait RPC (confirmed against the
+      // live server - agent.wait/agent.prompt from the public docs don't exist in
+      // this protocol version); poll agent.get instead, same pattern as startPolling.
+      await this.pollAgentStatus(session.herdrAgentId, 30000).catch(() => {})
 
       // Guard against killSession() racing this in-flight createSession()
       if (session.status === 'stopped') {
@@ -355,12 +329,12 @@ class AgentSessionManager extends EventEmitter {
     const client = getHerdrClient()
 
     if (session.herdrAgentId) {
-      // agent.prompt supports an inline wait — no separate echo detection needed.
-      await client.call('agent.prompt', {
-        agent_id: session.herdrAgentId,
-        text: prompt,
-        wait: { until: 'idle', timeout_ms: 15000 }
-      })
+      // agent.send writes literal text only (no inline wait, no Enter — confirmed
+      // against the live server; `agent.prompt` from the public docs doesn't
+      // exist in this protocol version). Submit, then poll for idle like createSession.
+      await client.call('agent.send', { target: session.herdrAgentId, text: prompt })
+      await client.call('pane.send_keys', { pane_id: session.herdrPaneId, keys: ['Enter'] })
+      await this.pollAgentStatus(session.herdrAgentId, 15000).catch(() => {})
       return
     }
 
@@ -599,6 +573,29 @@ class AgentSessionManager extends EventEmitter {
     this.sessions.clear()
   }
 
+  // -- Agent status waiting ----------------------------------------------
+  // No blocking agent-wait RPC exists in this protocol version (confirmed
+  // against the live server's method list and by observing the `herdr agent
+  // wait` CLI itself poll `agent.get` in a loop). Mirrors that behavior.
+  private async pollAgentStatus(agentTarget: string, timeoutMs: number): Promise<void> {
+    const client = getHerdrClient()
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      let status: string | undefined
+      try {
+        const info = await client.call<{ agent: { agent_status: string } }>('agent.get', { target: agentTarget })
+        status = info.agent?.agent_status
+      } catch {
+        // Agent target not found (process exited, or never got recognized as a
+        // known agent binary) - nothing further to wait for.
+        return
+      }
+      if (status === 'idle' || status === 'done') return
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    }
+    throw new Error(`Agent "${agentTarget}" did not reach idle within ${timeoutMs}ms`)
+  }
+
   // -- Output polling (see POLL_INTERVAL_MS doc comment) ---------------------
 
   private startPolling(session: AgentSessionInternal): void {
@@ -608,11 +605,11 @@ class AgentSessionManager extends EventEmitter {
     session.pollTimer = setInterval(async () => {
       if (!session.herdrPaneId) return
       try {
-        const read = await client.call<{ data?: string; text?: string }>('pane.read', {
+        const read = await client.call<{ read?: { text?: string } }>('pane.read', {
           pane_id: session.herdrPaneId,
-          source: 'recent-unwrapped'
+          source: 'recent_unwrapped'
         })
-        const snapshot = read.data ?? read.text ?? ''
+        const snapshot = read.read?.text ?? ''
         if (snapshot && snapshot !== session.outputBuffer) {
           const newSuffix = snapshot.startsWith(session.outputBuffer)
             ? snapshot.slice(session.outputBuffer.length)

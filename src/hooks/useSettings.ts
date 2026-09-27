@@ -42,8 +42,9 @@ function loadSettings(): AppSettings {
           ...parsed.workspace
         }
       }
-      // Migrate stale agent type (e.g. 'cursor' is no longer available)
-      if (merged.agent.defaultAgentType === 'cursor') {
+      // Migrate stale agent type from settings persisted before Cursor/GitHub
+      // Copilot support was dropped - Claude Code is the only agent, long term.
+      if ((merged.agent.defaultAgentType as string) === 'cursor' || (merged.agent.defaultAgentType as string) === 'github-copilot') {
         merged.agent.defaultAgentType = DEFAULT_SETTINGS.agent.defaultAgentType
       }
       return merged
