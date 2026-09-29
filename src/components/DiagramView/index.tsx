@@ -497,6 +497,8 @@ export function DiagramView({ process, processPath, onBack, onNavigateToProcess,
                 log={log}
                 hasPendingInteraction={hasPendingInteraction}
                 activeStepId={process.currentState.activeStep.id}
+                process={process}
+                processPath={processPath}
               />
             )}
           </div>

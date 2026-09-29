@@ -1,9 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import type { ProcessStep, ProcessMemory, ProcessLog, MemoryTopicEntry, LogStepEntry } from '../../types'
+import type { ProcessStep, ProcessMemory, ProcessLog, MemoryTopicEntry, LogStepEntry, ProcessInstance, InteractionOption } from '../../types'
 import { getStatusColor, formatTimestamp } from '../../services/processService'
 import { parseStepDefinition, toDisplayText } from '../Templates/TemplateDetail'
 import { OutputSection, SubstepsSection, FlowSection, GuidanceSection, MemoryFileUsageSection, ModalSection } from '../Templates/StepModalSections'
+import { IframeWidget } from '../ViewWidget/IframeWidget'
+import { getInteractionOptions, executeLazyPrompt } from '../../services/lazyPromptsService'
+import { useSettings } from '../../hooks/useSettings'
+import { useToast } from '../Toast'
 
 interface ProcessStepDetailModalProps {
   steps: ProcessStep[]
@@ -14,16 +18,64 @@ interface ProcessStepDetailModalProps {
   log: ProcessLog | null
   hasPendingInteraction?: boolean
   activeStepId?: string
+  process: ProcessInstance
+  processPath: string
 }
 
 type Tab = 'definition' | 'execution'
 
-export function ProcessStepDetailModal({ steps, currentIndex, onNavigate, onClose, memory, log, hasPendingInteraction, activeStepId }: ProcessStepDetailModalProps) {
+export function ProcessStepDetailModal({ steps, currentIndex, onNavigate, onClose, memory, log, hasPendingInteraction, activeStepId, process, processPath }: ProcessStepDetailModalProps) {
   const modalRef = useRef<HTMLDivElement>(null)
   const step = steps[currentIndex]
   const parsed = parseStepDefinition(step.stepDefinition)
   const hasPrev = currentIndex > 0
   const hasNext = currentIndex < steps.length - 1
+  const { settings } = useSettings()
+  const { showToast } = useToast()
+
+  const isActiveGate = !!step.view && !!hasPendingInteraction && step.id === activeStepId
+
+  // Read pending-interaction.json options (carries bound `data` when the step's view requires it)
+  const [pendingOptions, setPendingOptions] = useState<InteractionOption[] | null>(null)
+  useEffect(() => {
+    if (!isActiveGate) return
+    let cancelled = false
+    getInteractionOptions(processPath).then(options => {
+      if (!cancelled) setPendingOptions(options)
+    })
+    return () => { cancelled = true }
+  }, [isActiveGate, processPath])
+
+  useEffect(() => {
+    if (!isActiveGate || typeof window === 'undefined' || !window.electronAPI?.onPendingInteractionUpdate) return
+    const unsubscribe = window.electronAPI.onPendingInteractionUpdate(({ event, processPath: updatedPath }) => {
+      if (updatedPath !== processPath) return
+      if (event === 'removed') {
+        setPendingOptions(null)
+      } else {
+        getInteractionOptions(processPath).then(options => setPendingOptions(options))
+      }
+    })
+    return unsubscribe
+  }, [isActiveGate, processPath])
+
+  const widgetData = useMemo(() => {
+    if (!pendingOptions) return {}
+    return Object.fromEntries(pendingOptions.filter(o => o.data).map(o => [o.id, o.data]))
+  }, [pendingOptions])
+
+  const handleOperation = useCallback(async (operationId: string) => {
+    const option = pendingOptions?.find(o => o.id === operationId)
+    if (!option) return
+    const result = await executeLazyPrompt('select-option', settings.lazyPrompts.defaultAction, process, processPath, option)
+    if (result.success) {
+      showToast(settings.lazyPrompts.defaultAction === 'agent-apply' ? `"${option.label}" sent to agent` : `"${option.label}" copied to clipboard`, 'success')
+    } else if (result.noSession) {
+      showToast('No active agent session — start an agent session first.', 'error')
+    } else {
+      showToast(result.message || 'Failed to execute action', 'error')
+    }
+  }, [pendingOptions, settings.lazyPrompts.defaultAction, process, processPath, showToast])
 
   // Aggregate memory contributions from all topic files for this step
   const memoryEntries: { topic: string; entry: MemoryTopicEntry }[] = []
@@ -160,6 +212,13 @@ export function ProcessStepDetailModal({ steps, currentIndex, onNavigate, onClos
             </button>
           </div>
         </div>
+
+        {/* Live view widget — shown whenever this step's declared view is the active, pending gate */}
+        {isActiveGate && pendingOptions && step.view?.html && (
+          <div className="flex-shrink-0 px-6 pt-4 h-80">
+            <IframeWidget html={step.view.html} data={widgetData} onOperation={handleOperation} />
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex-shrink-0 px-6 pt-3 bg-surface-elevated border-b border-border">

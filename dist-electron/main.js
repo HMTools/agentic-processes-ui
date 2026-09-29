@@ -16872,6 +16872,47 @@ async function resolveStepDefinitions(template, templateDir) {
     }
   }
 }
+async function buildViewIdRegistry(templateDir) {
+  const registry = /* @__PURE__ */ new Map();
+  const viewsDir = join(templateDir, "views");
+  if (!existsSync(viewsDir)) return registry;
+  const entries = await readdir(viewsDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const viewJsonPath = join(viewsDir, entry.name, `${entry.name}.json`);
+    if (existsSync(viewJsonPath)) {
+      try {
+        const content = await readFile(viewJsonPath, "utf-8");
+        const data = JSON.parse(content);
+        if (data.type === "view" && data.id) {
+          registry.set(data.id, viewJsonPath);
+        }
+      } catch {
+      }
+    }
+  }
+  return registry;
+}
+async function resolveViews(template, templateDir) {
+  if (!template.steps || !Array.isArray(template.steps)) return;
+  const registry = await buildViewIdRegistry(templateDir);
+  for (const step of template.steps) {
+    if (!step.viewRef) continue;
+    const viewJsonPath = registry.get(step.viewRef);
+    if (viewJsonPath && existsSync(viewJsonPath)) {
+      try {
+        const view = JSON.parse(await readFile(viewJsonPath, "utf-8"));
+        const htmlPath = join(dirname(viewJsonPath), view.htmlFile);
+        if (existsSync(htmlPath)) {
+          view.html = await readFile(htmlPath, "utf-8");
+        }
+        step.view = view;
+      } catch (err) {
+        console.error(`Error resolving view UUID ${step.viewRef}: ${viewJsonPath}`, err);
+      }
+    }
+  }
+}
 ipcMain.handle("load-process-templates", async () => {
   try {
     const templatesPath = join(homedir(), ".claude", "agentic-processes", "templates", "processes");
@@ -16895,6 +16936,7 @@ ipcMain.handle("load-process-templates", async () => {
           if (template.type === "template") {
             template.filePath = directTemplateJson;
             await resolveStepDefinitions(template, categoryPath);
+            await resolveViews(template, categoryPath);
             templates.push(template);
           }
         } catch (err) {
@@ -16917,6 +16959,7 @@ ipcMain.handle("load-process-templates", async () => {
             if (template.type === "template") {
               template.filePath = jsonPath;
               await resolveStepDefinitions(template, templatePath);
+              await resolveViews(template, templatePath);
               templates.push(template);
             }
           } catch (err) {

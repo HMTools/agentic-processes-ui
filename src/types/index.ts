@@ -86,6 +86,23 @@ export interface InteractionOption {
   description?: string
   /** Whether this option should be pre-selected/highlighted as default */
   isDefault?: boolean
+  /** Present only when the step's resolved view declares this option's id as an operationId */
+  data?: Record<string, unknown>
+}
+
+/**
+ * A view is an HTML widget a template attaches to one of its approval-gate steps via viewRef,
+ * resolved the same way a step's stepRef is resolved against its own subfolder.
+ */
+export interface ViewDefinition {
+  type: 'view'
+  id: string
+  name: string
+  htmlFile: string
+  /** Widget HTML content, inlined at resolution time (present on a resolved copy) */
+  html?: string
+  operationIds: string[]
+  mockData: Record<string, unknown>
 }
 
 /**
@@ -130,6 +147,9 @@ export interface ProcessStep {
   loopCondition?: string
   maxIterations?: number
   stepDefinition: Record<string, unknown>
+  /** Resolved view (from the template's views/ folder via viewRef), embedded at
+   *  process-creation time — same embedding pattern as stepDefinition itself */
+  view?: ViewDefinition
 }
 
 export interface ChildProcessRef {
@@ -619,6 +639,11 @@ export interface TemplateStep {
   loopCondition?: string
   maxIterations?: number
   stepDefinition: Record<string, unknown>
+  /** Reference to a view definition UUID under this template's own views/ folder */
+  viewRef?: string
+  /** Resolved view (from the template's views/ folder via viewRef), resolved by the Electron
+   *  template loader for browsing mode — no running process instance needed */
+  view?: ViewDefinition
 }
 
 export interface TemplatePhase {

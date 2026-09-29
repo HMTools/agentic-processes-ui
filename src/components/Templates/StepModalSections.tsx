@@ -1,5 +1,7 @@
-import type { TemplateStep } from '../../types'
+import type { TemplateStep, ViewDefinition } from '../../types'
 import { toDisplayText, type ParsedStepDefinition } from './TemplateDetail'
+import { IframeWidget } from '../ViewWidget/IframeWidget'
+import { useToast } from '../Toast'
 
 export function ModalSection({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -315,6 +317,34 @@ export function SubProcessSection({ trigger }: { trigger: NonNullable<TemplateSt
             <code className="text-xs font-mono text-text-secondary">{trigger.syncPoint}</code>
           </div>
         )}
+      </div>
+    </ModalSection>
+  )
+}
+
+export function ViewPreviewSection({ view }: { view: ViewDefinition }) {
+  const { showToast } = useToast()
+
+  if (!view.html) return null
+
+  return (
+    <ModalSection
+      title="View Preview (mock data)"
+      icon={
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+        </svg>
+      }
+    >
+      <div className="h-72">
+        <IframeWidget
+          html={view.html}
+          data={view.mockData}
+          onOperation={(operationId) =>
+            showToast(`Preview only — "${operationId}" would run here in a live process, no action taken.`, 'info')
+          }
+        />
       </div>
     </ModalSection>
   )

@@ -53,7 +53,8 @@ export async function getInteractionOptions(processPath: string): Promise<Intera
       id: (opt.id ?? opt.value ?? opt.label) as string,
       label: opt.label as string,
       description: opt.description as string | undefined,
-      isDefault: opt.isDefault as boolean | undefined
+      isDefault: opt.isDefault as boolean | undefined,
+      data: opt.data as Record<string, unknown> | undefined
     }))
 
     return options

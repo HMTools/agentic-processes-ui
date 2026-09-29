@@ -248,6 +248,11 @@ function ProcessTemplateView({ template, expandedStepIndex, onStepClick, onSubPr
                           Approval
                         </span>
                       )}
+                      {step.view && (
+                        <span className="px-1 py-0.5 text-[9px] rounded bg-blue-500/20 text-blue-400">
+                          View
+                        </span>
+                      )}
                       {step.conditional && (
                         <span className="px-1 py-0.5 text-[9px] rounded bg-status-active/20 text-status-active">
                           Conditional

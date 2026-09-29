@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import type { TemplateStep } from '../../types'
 import { getStepRefDisplayName } from '../../services/templatesService'
 import { parseStepDefinition } from './TemplateDetail'
-import { OutputSection, SubstepsSection, FlowSection, GuidanceSection, MemoryFileUsageSection, ContextSection, SubProcessSection } from './StepModalSections'
+import { OutputSection, SubstepsSection, FlowSection, GuidanceSection, MemoryFileUsageSection, ContextSection, SubProcessSection, ViewPreviewSection } from './StepModalSections'
 
 interface StepDetailModalProps {
   steps: TemplateStep[]
@@ -79,6 +79,11 @@ export function StepDetailModal({ steps, currentIndex, onNavigate, onClose }: St
                   Approval Required
                 </span>
               )}
+              {step.view && (
+                <span className="px-1.5 py-0.5 text-[10px] rounded bg-blue-500/20 text-blue-400 font-medium">
+                  View
+                </span>
+              )}
               {step.conditional && (
                 <span className="px-1.5 py-0.5 text-[10px] rounded bg-status-active/20 text-status-active font-medium">
                   Conditional
@@ -142,6 +147,7 @@ export function StepDetailModal({ steps, currentIndex, onNavigate, onClose }: St
 
             {/* Sidebar column */}
             <div className="space-y-6">
+              {step.view && <ViewPreviewSection view={step.view} />}
               <GuidanceSection guidance={parsed.guidance} />
               <MemoryFileUsageSection memoryFileUsage={parsed.memoryFileUsage} />
               {step.context && Object.keys(step.context).length > 0 && (
